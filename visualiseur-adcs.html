@@ -1,0 +1,1388 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Visualiseur ADCS — supervision des certificats</title>
+<style>
+  :root {
+    --bleu: #000091;          /* bleu Marianne — identité */
+    --bleu-clair: #E3E3FD;
+    --bleu-survol: #1212FF;
+    --encre: #161616;
+    --gris-700: #3A3A3A;
+    --gris-500: #666666;
+    --gris-300: #DDDDDD;
+    --gris-100: #F6F6F6;
+    --fond: #FFFFFF;
+    --ok: #18753C;            /* vert émission */
+    --ok-fond: #B8FEC9;
+    --alerte: #B34000;        /* ambre expiration proche */
+    --alerte-fond: #FFE9E6;
+    --danger: #CE0500;        /* rouge révocation / retard */
+    --danger-fond: #FFE9E9;
+    --neutre-fond: #EEEEEE;
+    --mono: "Consolas", "Cascadia Mono", "Courier New", monospace;
+    --sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+    --ombre: 0 1px 3px rgba(0,0,18,.16);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--sans);
+    color: var(--encre);
+    background: var(--gris-100);
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  /* ---------- entête ---------- */
+  header {
+    background: var(--fond);
+    border-bottom: 3px solid var(--bleu);
+    padding: 14px 24px;
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  }
+  .marque { display: flex; align-items: baseline; gap: 10px; }
+  .marque h1 { font-size: 19px; font-weight: 700; margin: 0; letter-spacing: -.2px; }
+  .marque .sceau {
+    display: inline-block; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--bleu); box-shadow: 0 0 0 3px var(--bleu-clair);
+    transform: translateY(1px);
+  }
+  .contexte { color: var(--gris-500); font-size: 13px; }
+  .contexte b { color: var(--gris-700); font-weight: 600; }
+  header .droite { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .pastille-lecture {
+    font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+    color: var(--ok); background: var(--ok-fond); padding: 3px 9px; border-radius: 3px;
+  }
+  button, .btn {
+    font-family: var(--sans); font-size: 13px; cursor: pointer;
+    border: 1px solid var(--bleu); color: var(--bleu); background: var(--fond);
+    padding: 6px 12px; border-radius: 4px;
+  }
+  button:hover, .btn:hover { background: var(--bleu-clair); }
+  button.primaire { background: var(--bleu); color: #fff; }
+  button.primaire:hover { background: var(--bleu-survol); }
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, tr:focus-visible {
+    outline: 2px solid var(--bleu-survol); outline-offset: 2px;
+  }
+  /* ---------- zone d'import ---------- */
+  #zone-import {
+    max-width: 720px; margin: 60px auto; background: var(--fond);
+    border: 2px dashed var(--gris-300); border-radius: 8px; padding: 48px 40px;
+    text-align: center; transition: border-color .15s, background .15s;
+  }
+  #zone-import.survol { border-color: var(--bleu); background: var(--bleu-clair); }
+  #zone-import h2 { margin: 0 0 8px; font-size: 18px; }
+  #zone-import p { color: var(--gris-500); margin: 6px 0 18px; }
+  #zone-import code { font-family: var(--mono); background: var(--gris-100); padding: 2px 6px; border-radius: 3px; }
+  /* ---------- application ---------- */
+  #app { display: none; }
+  main { max-width: 1360px; margin: 0 auto; padding: 20px 24px 60px; }
+  /* KPI */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .kpi {
+    background: var(--fond); border-radius: 6px; box-shadow: var(--ombre);
+    padding: 14px 16px 12px; cursor: pointer; border: 2px solid transparent;
+    border-left: 4px solid var(--gris-300); text-align: left;
+  }
+  .kpi:hover { border-color: var(--bleu-clair); border-left-color: var(--bleu); }
+  .kpi .valeur { font-size: 28px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .kpi .libelle { font-size: 12px; color: var(--gris-500); margin-top: 2px; }
+  .kpi.ok .valeur { color: var(--ok); }        .kpi.ok { border-left-color: var(--ok); }
+  .kpi.alerte .valeur { color: var(--alerte); } .kpi.alerte { border-left-color: var(--alerte); }
+  .kpi.danger .valeur { color: var(--danger); } .kpi.danger { border-left-color: var(--danger); }
+  .kpi.neutre .valeur { color: var(--bleu); }   .kpi.neutre { border-left-color: var(--bleu); }
+  /* frise */
+  .carte {
+    background: var(--fond); border-radius: 6px; box-shadow: var(--ombre);
+    padding: 16px 20px; margin-bottom: 18px;
+  }
+  .carte h2 { font-size: 15px; margin: 0 0 4px; }
+  .carte .sous-titre { font-size: 12px; color: var(--gris-500); margin: 0 0 10px; }
+  #frise svg { width: 100%; height: auto; display: block; }
+  #frise .barre { cursor: pointer; }
+  #frise .barre:hover rect { opacity: .75; }
+  /* onglets */
+  nav.onglets { display: flex; gap: 4px; border-bottom: 2px solid var(--gris-300); margin-bottom: 16px; flex-wrap: wrap; }
+  nav.onglets button {
+    border: none; background: none; color: var(--gris-700); font-size: 14px;
+    padding: 9px 16px; border-radius: 0; border-bottom: 3px solid transparent; margin-bottom: -2px;
+  }
+  nav.onglets button:hover { background: var(--gris-100); color: var(--bleu); }
+  nav.onglets button.actif { color: var(--bleu); border-bottom-color: var(--bleu); font-weight: 600; }
+  nav.onglets .badge {
+    display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 6px;
+    font-size: 11px; font-weight: 700; border-radius: 9px; background: var(--neutre-fond); color: var(--gris-700);
+  }
+  nav.onglets .badge.alerte { background: var(--alerte-fond); color: var(--alerte); }
+  nav.onglets .badge.danger { background: var(--danger-fond); color: var(--danger); }
+  /* filtres */
+  .filtres { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .filtres input[type=search], .filtres select {
+    font-family: var(--sans); font-size: 13px; padding: 7px 10px;
+    border: 1px solid var(--gris-300); border-radius: 4px; background: var(--fond);
+  }
+  .filtres input[type=search] { min-width: 260px; }
+  .filtres .info-filtre { font-size: 12px; color: var(--gris-500); margin-left: auto; }
+  /* tables */
+  .table-conteneur { background: var(--fond); border-radius: 6px; box-shadow: var(--ombre); overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  thead th {
+    text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+    color: var(--gris-500); padding: 10px 12px; border-bottom: 2px solid var(--gris-300);
+    cursor: pointer; user-select: none; white-space: nowrap; background: var(--fond);
+    position: sticky; top: 0;
+  }
+  thead th:hover { color: var(--bleu); }
+  thead th .fleche { font-size: 10px; margin-left: 3px; }
+  tbody td { padding: 8px 12px; border-bottom: 1px solid var(--gris-100); vertical-align: top; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--bleu-clair); }
+  td.mono, .mono { font-family: var(--mono); font-size: 12px; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .etat {
+    display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 3px; white-space: nowrap;
+  }
+  .etat.actif   { color: var(--ok); background: var(--ok-fond); }
+  .etat.bientot { color: var(--alerte); background: var(--alerte-fond); }
+  .etat.expire  { color: var(--gris-700); background: var(--neutre-fond); }
+  .etat.revoque { color: var(--danger); background: var(--danger-fond); }
+  .etat.attente { color: var(--bleu); background: var(--bleu-clair); }
+  .jours { font-size: 11px; color: var(--gris-500); }
+  .charger-plus { margin: 12px; }
+  .vide { padding: 32px; text-align: center; color: var(--gris-500); }
+  /* panneau de détail */
+  #voile { display: none; position: fixed; inset: 0; background: rgba(22,22,22,.4); z-index: 40; }
+  #panneau {
+    position: fixed; top: 0; right: -560px; width: 540px; max-width: 95vw; height: 100vh;
+    background: var(--fond); box-shadow: -4px 0 18px rgba(0,0,18,.25); z-index: 50;
+    transition: right .2s ease; overflow-y: auto; padding: 22px 26px;
+  }
+  #panneau.ouvert { right: 0; }
+  #panneau h2 { margin: 0 0 2px; font-size: 17px; word-break: break-word; }
+  #panneau .fermer { float: right; border: none; font-size: 20px; padding: 2px 10px; color: var(--gris-500); }
+  dl.fiche { display: grid; grid-template-columns: 150px 1fr; gap: 6px 12px; margin: 16px 0; }
+  dl.fiche dt { color: var(--gris-500); font-size: 12px; padding-top: 2px; }
+  dl.fiche dd { margin: 0; word-break: break-all; }
+  .bloc-commandes { border: 1px solid var(--gris-300); border-radius: 6px; padding: 14px 16px; margin-top: 18px; }
+  .bloc-commandes h3 { margin: 0 0 6px; font-size: 14px; }
+  .avertissement {
+    font-size: 12px; color: var(--alerte); background: var(--alerte-fond);
+    border-radius: 4px; padding: 8px 10px; margin-bottom: 12px;
+  }
+  .commande { display: flex; gap: 8px; align-items: stretch; margin: 8px 0; }
+  .commande pre {
+    flex: 1; margin: 0; font-family: var(--mono); font-size: 12px; background: var(--gris-100);
+    padding: 8px 10px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-break: break-all;
+  }
+  .commande button { white-space: nowrap; align-self: center; }
+  .choix-raison { margin: 6px 0 4px; }
+  .note-commande { font-size: 12px; color: var(--gris-500); margin: 4px 0 0; }
+  /* cartes CRL / templates */
+  .grille-crl { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  .carte-crl { border: 1px solid var(--gris-300); border-radius: 6px; padding: 14px 16px; background: var(--fond); border-left: 4px solid var(--ok); }
+  .carte-crl.retard { border-left-color: var(--danger); }
+  .carte-crl.surveiller { border-left-color: var(--alerte); }
+  .carte-crl h3 { margin: 0 0 6px; font-size: 14px; font-family: var(--mono); word-break: break-all; }
+  .carte-crl .ligne { display: flex; justify-content: space-between; font-size: 13px; padding: 2px 0; }
+  .carte-crl .ligne span:first-child { color: var(--gris-500); }
+  /* aide */
+  .aide p, .aide li { font-size: 13.5px; }
+  .aide code { font-family: var(--mono); background: var(--gris-100); padding: 1px 5px; border-radius: 3px; font-size: 12.5px; }
+  .aide h3 { font-size: 14px; margin: 18px 0 6px; }
+  /* ---------- sélection & actions de masse ---------- */
+  td.sel, th.col-sel { width: 34px; text-align: center; }
+  td.sel input, th.col-sel input { cursor: pointer; width: 15px; height: 15px; accent-color: var(--bleu); }
+  td.sel input:disabled { cursor: not-allowed; }
+  #bandeau-fraicheur {
+    display: none; background: var(--alerte-fond); color: var(--alerte);
+    padding: 8px 24px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--alerte);
+  }
+  #barre-actions {
+    position: fixed; bottom: -80px; left: 50%; transform: translateX(-50%);
+    background: var(--encre); color: #fff; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,18,.35);
+    padding: 10px 18px; display: flex; align-items: center; gap: 12px; z-index: 45;
+    transition: bottom .2s ease; max-width: 95vw; flex-wrap: wrap;
+  }
+  #barre-actions.visible { bottom: 20px; }
+  #barre-actions .compte { font-weight: 700; white-space: nowrap; }
+  #barre-actions select {
+    font-family: var(--sans); font-size: 13px; padding: 5px 8px; border-radius: 4px; border: none;
+  }
+  #barre-actions button { border-color: #fff; color: #fff; background: transparent; }
+  #barre-actions button:hover { background: rgba(255,255,255,.15); }
+  #barre-actions button.primaire { background: var(--danger); border-color: var(--danger); }
+  #barre-actions button.primaire:hover { background: #A00400; }
+  /* modale récapitulative */
+  #modale-voile { display: none; position: fixed; inset: 0; background: rgba(22,22,22,.5); z-index: 55; }
+  #modale {
+    display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    background: var(--fond); border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,18,.4);
+    z-index: 56; width: 640px; max-width: 94vw; max-height: 85vh; overflow-y: auto; padding: 22px 26px;
+  }
+  #modale h2 { margin: 0 0 4px; font-size: 17px; }
+  #modale .recap-liste {
+    font-family: var(--mono); font-size: 12px; background: var(--gris-100); border-radius: 4px;
+    padding: 10px 12px; margin: 12px 0; max-height: 220px; overflow-y: auto; white-space: pre;
+  }
+  #modale .boutons { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+  /* ---------- écran de chargement ---------- */
+  #chargement {
+    display: none; position: fixed; inset: 0; background: rgba(255,255,255,.88);
+    z-index: 70; align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+  }
+  #chargement .spinner {
+    width: 44px; height: 44px; border-radius: 50%;
+    border: 4px solid var(--bleu-clair); border-top-color: var(--bleu);
+    animation: rotation .8s linear infinite;
+  }
+  @keyframes rotation { to { transform: rotate(360deg); } }
+  #chargement p { font-size: 14px; color: var(--gris-700); font-weight: 600; margin: 0; }
+  #chargement .sous { font-size: 12px; color: var(--gris-500); font-weight: 400; }
+  @media (prefers-reduced-motion: reduce) { #chargement .spinner { animation-duration: 2s; } }
+  /* toast */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: var(--encre); color: #fff; padding: 10px 18px; border-radius: 5px;
+    font-size: 13px; z-index: 60; transition: transform .2s; pointer-events: none;
+  }
+  #toast.visible { transform: translateX(-50%) translateY(0); }
+  #toast.decale { bottom: 88px; }
+  @media (prefers-reduced-motion: reduce) {
+    #panneau, #toast, #zone-import { transition: none; }
+  }
+  @media print {
+    header .droite, .filtres, nav.onglets, .charger-plus { display: none; }
+    body { background: #fff; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="marque"><span class="sceau" aria-hidden="true"></span><h1>Visualiseur ADCS</h1></div>
+  <div class="contexte" id="ctx-ca"></div>
+  <div class="droite">
+    <span class="pastille-lecture" title="Cet outil ne se connecte jamais à la CA : il lit un export JSON.">Consultation seule</span>
+    <button id="btn-recharger" style="display:none">Charger un autre export</button>
+  </div>
+</header>
+<div id="bandeau-fraicheur"></div>
+
+<div id="zone-import">
+  <h2>Charger un export ADCS</h2>
+  <p>Déposez ici le fichier <code>adcs-data.json</code> produit par <code>Collecte-ADCS.ps1</code>,<br>ou sélectionnez-le manuellement.</p>
+  <button class="primaire" id="btn-choisir">Choisir un fichier…</button>
+  <input type="file" id="champ-fichier" accept=".json,application/json" style="display:none">
+  <p style="margin-top:22px;font-size:12px">Aucune donnée ne quitte ce poste : le fichier est lu localement par le navigateur.</p>
+</div>
+
+<div id="app">
+<main>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="carte" id="carte-frise">
+    <h2>Expirations sur les 12 prochains mois</h2>
+    <p class="sous-titre">Cliquez sur un mois pour filtrer la liste des certificats. Les certificats révoqués sont exclus.</p>
+    <div id="frise"></div>
+  </div>
+
+  <nav class="onglets" id="onglets" role="tablist">
+    <button data-onglet="certificats" class="actif" role="tab">Certificats <span class="badge" id="badge-certs">0</span></button>
+    <button data-onglet="attente" role="tab">En attente <span class="badge" id="badge-attente">0</span></button>
+    <button data-onglet="echecs" role="tab">Échecs <span class="badge" id="badge-echecs">0</span></button>
+    <button data-onglet="crl" role="tab">CRL &amp; modèles</button>
+    <button data-onglet="aide" role="tab">Aide</button>
+  </nav>
+
+  <!-- Onglet certificats -->
+  <section id="onglet-certificats">
+    <div class="filtres">
+      <input type="search" id="recherche" placeholder="Rechercher : CN, demandeur, n° de série, modèle…" aria-label="Rechercher un certificat">
+      <select id="filtre-etat" aria-label="Filtrer par état">
+        <option value="">Tous les états</option>
+        <option value="actif">Actifs</option>
+        <option value="j30">Expirent ≤ 30 j</option>
+        <option value="j60">Expirent ≤ 60 j</option>
+        <option value="j90">Expirent ≤ 90 j</option>
+        <option value="expire">Expirés</option>
+        <option value="revoque">Révoqués</option>
+        <option value="doublon">Anciens doublons (à nettoyer)</option>
+      </select>
+      <select id="filtre-template" aria-label="Filtrer par modèle"><option value="">Tous les modèles</option></select>
+      <button id="btn-reinit">Réinitialiser</button>
+      <button id="btn-csv">Exporter la vue (CSV)</button>
+      <span class="info-filtre" id="info-filtre"></span>
+    </div>
+    <div class="table-conteneur">
+      <table id="table-certs">
+        <thead><tr>
+          <th class="col-sel"><input type="checkbox" id="sel-tout" title="Sélectionner tous les certificats sélectionnables de la vue filtrée" aria-label="Tout sélectionner"></th>
+          <th data-tri="id">ID<span class="fleche"></span></th>
+          <th data-tri="cn">Nom commun<span class="fleche"></span></th>
+          <th data-tri="demandeur">Demandeur<span class="fleche"></span></th>
+          <th data-tri="templateAff">Modèle<span class="fleche"></span></th>
+          <th data-tri="notBefore">Émis le<span class="fleche"></span></th>
+          <th data-tri="notAfter">Expire le<span class="fleche"></span></th>
+          <th data-tri="etatOrdre">État<span class="fleche"></span></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="vide" id="certs-vide" style="display:none">Aucun certificat ne correspond aux filtres.</div>
+      <button class="charger-plus" id="btn-plus" style="display:none">Afficher les lignes suivantes</button>
+    </div>
+  </section>
+
+  <!-- Onglet en attente -->
+  <section id="onglet-attente" style="display:none">
+    <div class="filtres">
+      <input type="search" id="recherche-attente" placeholder="Rechercher : CN, demandeur, modèle, ID…" aria-label="Rechercher une requête en attente">
+      <span class="info-filtre" id="info-attente"></span>
+    </div>
+    <div class="table-conteneur">
+      <table id="table-attente">
+        <thead><tr>
+          <th data-tri="id">ID<span class="fleche"></span></th>
+          <th data-tri="cn">Nom commun<span class="fleche"></span></th>
+          <th data-tri="demandeur">Demandeur<span class="fleche"></span></th>
+          <th data-tri="templateAff">Modèle<span class="fleche"></span></th>
+          <th data-tri="soumisLe">Soumise le<span class="fleche"></span></th>
+          <th>Ancienneté</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="vide" id="attente-vide" style="display:none">Aucune requête en attente d'approbation.</div>
+      <button class="charger-plus" id="btn-plus-attente" style="display:none">Afficher les lignes suivantes</button>
+    </div>
+  </section>
+
+  <!-- Onglet échecs -->
+  <section id="onglet-echecs" style="display:none">
+    <div class="filtres">
+      <input type="search" id="recherche-echecs" placeholder="Rechercher : message, CN, demandeur, ID…" aria-label="Rechercher un échec">
+      <select id="filtre-type-echec" aria-label="Filtrer par type">
+        <option value="">Tous les types</option>
+        <option value="Erreur">Erreurs</option>
+        <option value="Refusee">Refusées</option>
+      </select>
+      <select id="filtre-modele-echec" aria-label="Filtrer par modèle"><option value="">Tous les modèles</option></select>
+      <select id="filtre-message-echec" aria-label="Filtrer par message" style="max-width:340px"><option value="">Tous les messages</option></select>
+      <button id="btn-reinit-echecs">Réinitialiser</button>
+      <button id="btn-csv-echecs">Exporter la vue (CSV)</button>
+      <span class="info-filtre" id="info-echecs"></span>
+    </div>
+    <div class="table-conteneur">
+      <table id="table-echecs">
+        <thead><tr>
+          <th data-tri="id">ID<span class="fleche"></span></th>
+          <th data-tri="cn">Nom commun<span class="fleche"></span></th>
+          <th data-tri="demandeur">Demandeur<span class="fleche"></span></th>
+          <th data-tri="templateAff">Modèle<span class="fleche"></span></th>
+          <th data-tri="soumisLe">Soumise le<span class="fleche"></span></th>
+          <th data-tri="disposition">Type<span class="fleche"></span></th>
+          <th data-tri="message">Message<span class="fleche"></span></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="vide" id="echecs-vide" style="display:none">Aucune requête en échec ne correspond aux filtres.</div>
+      <button class="charger-plus" id="btn-plus-echecs" style="display:none">Afficher les lignes suivantes</button>
+    </div>
+  </section>
+
+  <!-- Onglet CRL & modèles -->
+  <section id="onglet-crl" style="display:none">
+    <div class="carte">
+      <h2>Listes de révocation (CRL)</h2>
+      <p class="sous-titre">Dates lues directement dans les fichiers CRL au moment de la collecte. Une CRL en retard signifie que les clients ne peuvent plus vérifier les révocations : incident à traiter en priorité.</p>
+      <div class="grille-crl" id="grille-crl"></div>
+    </div>
+    <div class="carte">
+      <h2>Modèles de certificats publiés dans l'AD</h2>
+      <div class="table-conteneur" style="box-shadow:none">
+        <table id="table-templates">
+          <thead><tr><th>Nom d'affichage</th><th>Nom technique</th><th>OID</th><th class="num">Certificats émis (export)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Onglet aide -->
+  <section id="onglet-aide" style="display:none">
+    <div class="carte aide">
+      <h2>Fonctionnement et périmètre de sécurité</h2>
+      <p>Cette interface est un <b>visualiseur hors ligne</b> : elle ne se connecte jamais à l'autorité de certification.
+      Elle lit un export JSON produit par le collecteur <code>Collecte-ADCS.ps1</code>, qui interroge la base de la CA
+      <b>en lecture seule</b> (interface COM ICertView, RPC), avec un compte disposant uniquement du droit <i>Read</i>
+      (ou du rôle <i>Auditor</i> si la séparation des rôles est activée).</p>
+      <h3>Collecte planifiée recommandée</h3>
+      <p><code>powershell.exe -ExecutionPolicy AllSigned -File Collecte-ADCS.ps1 -Config "SERVEUR\Nom CA" -Html visualiseur-adcs.html -Sortie \\partage\pki</code></p>
+      <ul>
+        <li><code>-Depuis (Get-Date).AddYears(-3)</code> pour limiter la profondeur sur les bases volumineuses ;</li>
+        <li><code>-Html</code> produit un fichier auto-porteur unique (données embarquées) à déposer sur un partage DSI ;</li>
+        <li><code>-CheminCRL</code> pour pointer vers un CDP HTTP si le partage CertEnroll n'est pas accessible.</li>
+      </ul>
+      <h3>Actions (révocation, approbation, refus)</h3>
+      <p>L'outil <b>n'exécute aucune action</b>. Il pré-génère des commandes <code>certutil</code> à copier,
+      à exécuter par un administrateur de la CA habilité, depuis un poste d'administration, afin que chaque action
+      reste un geste conscient, tracé dans les journaux de la CA et imputable.</p>
+      <p>Après une révocation, pensez à publier une nouvelle CRL (<code>certutil -config "…" -crl</code>) pour que la
+      révocation soit effective côté clients avant la prochaine publication planifiée.</p>
+      <h3>Révocation de masse</h3>
+      <p>Cochez les certificats concernés (ou la case d'en-tête pour toute la vue filtrée), choisissez le motif dans la
+      barre d'actions, puis « Préparer la révocation ». Après relecture du récapitulatif, préférez le
+      <b>script PowerShell généré</b> : il exige la saisie du nombre exact de certificats pour confirmer, journalise
+      chaque révocation dans un transcript, dresse un bilan succès/échecs, et propose la publication d'une nouvelle CRL.
+      Les certificats expirés et déjà révoqués ne sont pas sélectionnables (les CRL ne portent pas les certificats expirés).
+      Le script généré est à relire puis signer avant exécution, conformément à votre politique AllSigned.</p>
+      <h3>Doublons à nettoyer</h3>
+      <p>Un certificat est marqué <i>doublon</i> lorsqu'un certificat plus récent, valide, existe pour le même nom commun
+      et le même modèle — typiquement après un ré-enrôlement. Les certificats à courte durée de vie (validité ≤ 60 jours,
+      comme la signature de réponses OCSP) sont <b>exclus</b> de cette détection : leur chevauchement est normal et leur
+      révocation serait dangereuse. Avant toute révocation d'un doublon, vérifiez que le certificat le plus récent est
+      bien <b>déployé et utilisé</b> (poste ayant récupéré son nouveau certificat, service rechargé) : le motif 6
+      (suspension, réversible via <code>certutil -revoke &lt;série&gt; unrevoke</code>) est une option prudente pour un
+      premier lot.</p>
+      <h3>Partager une vue</h3>
+      <p>Les filtres (recherche, état, modèle) s'encodent dans l'URL : copiez l'adresse pour envoyer exactement la même vue
+      à un collègue ouvrant le même fichier. Raccourci : <code>/</code> place le curseur dans la recherche.</p>
+      <h3>États affichés</h3>
+      <ul>
+        <li><span class="etat actif">Actif</span> certificat émis, valide, expirant dans plus de 90 jours ;</li>
+        <li><span class="etat bientot">Expire ≤ N j</span> certificat valide expirant dans 90 jours ou moins ;</li>
+        <li><span class="etat expire">Expiré</span> date de fin de validité dépassée ;</li>
+        <li><span class="etat revoque">Révoqué</span> présent dans la base avec disposition 21.</li>
+      </ul>
+    </div>
+  </section>
+</main>
+</div>
+
+<!-- Panneau de détail -->
+<div id="voile"></div>
+<aside id="panneau" aria-label="Détail du certificat"></aside>
+<!-- Barre d'actions de masse -->
+<div id="barre-actions" role="region" aria-label="Actions sur la sélection">
+  <span class="compte" id="sel-compte"></span>
+  <label for="raison-masse" style="font-size:13px">Motif :</label>
+  <select id="raison-masse">
+    <option value="0">0 — Non spécifié</option>
+    <option value="1">1 — Compromission de clé</option>
+    <option value="3">3 — Changement d'affiliation</option>
+    <option value="4" selected>4 — Remplacé</option>
+    <option value="5">5 — Cessation d'activité</option>
+    <option value="6">6 — Suspension (réversible)</option>
+  </select>
+  <button class="primaire" id="btn-revoquer-masse">Préparer la révocation…</button>
+  <button id="btn-copier-series">Copier les n° de série</button>
+  <button id="btn-vider-sel">Vider la sélection</button>
+</div>
+
+<!-- Modale récapitulative de révocation de masse -->
+<div id="modale-voile"></div>
+<div id="modale" role="dialog" aria-modal="true" aria-labelledby="modale-titre">
+  <h2 id="modale-titre"></h2>
+  <div class="avertissement">Cet outil n'exécute aucune action sur la CA. Vérifiez chaque ligne ci-dessous :
+  une révocation (hors motif 6) est <b>définitive</b>. Le script généré exige une confirmation explicite,
+  journalise dans un transcript, et propose la publication d'une nouvelle CRL en fin d'exécution.</div>
+  <div class="recap-liste" id="modale-recap"></div>
+  <div class="boutons">
+    <button class="primaire" id="btn-telecharger-ps1">Télécharger le script PowerShell</button>
+    <button id="btn-copier-commandes">Copier les commandes certutil</button>
+    <button id="btn-modale-fermer">Annuler</button>
+  </div>
+  <p class="note-commande">Recommandé pour un lot : le script PowerShell (confirmation par saisie du nombre exact,
+  transcript de journalisation, bilan par certificat). Les commandes brutes conviennent pour 2–3 certificats.</p>
+</div>
+
+<div id="chargement" role="status" aria-live="polite">
+  <div class="spinner" aria-hidden="true"></div>
+  <p id="chargement-etape">Chargement…</p>
+  <p class="sous" id="chargement-detail"></p>
+</div>
+<div id="toast" role="status"></div>
+
+<script type="application/json" id="donnees-adcs">null</script>
+<script>
+"use strict";
+/* ===========================================================================
+   Visualiseur ADCS — hors ligne, zéro dépendance.
+   Les données proviennent soit du bloc JSON embarqué (mode auto-porteur),
+   soit d'un fichier adcs-data.json chargé localement par l'utilisateur.
+   =========================================================================== */
+
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+let DONNEES = null;
+let CONFIG_CA = 'SERVEUR\\Nom CA';
+let certsEnrichis = [];
+let vueFiltree = [];
+let lignesAffichees = 400;
+let lignesAttenteAff = 400;
+let lignesEchecsAff = 400;
+const PAS_AFFICHAGE = 400;
+
+/* ---------- écran de chargement (parse et rendu asynchrones) ---------- */
+function montrerChargement(etape, detail) {
+  const c = $('#chargement');
+  c.style.display = 'flex';
+  $('#chargement-etape').textContent = etape;
+  $('#chargement-detail').textContent = detail || '';
+}
+function cacherChargement() { $('#chargement').style.display = 'none'; }
+// Rend la main au navigateur pour qu'il peigne l'écran de chargement
+// avant la prochaine phase de travail bloquante.
+const laisserPeindre = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+let tri = { cle: 'notAfter', sens: 1 };
+let triAttente = { cle: 'soumisLe', sens: 1 };        // les plus anciennes d'abord (à traiter)
+let triEchecs = { cle: 'soumisLe', sens: -1 };        // les plus récents d'abord
+let filtreMoisFrise = null;   // {debut: Date, fin: Date, libelle: string} ou null
+let selection = new Map();    // id -> certificat enrichi (révocation de masse)
+
+/* ---------- tri générique (partagé par toutes les tables) ---------- */
+function trierListe(liste, etatTri) {
+  const { cle, sens } = etatTri;
+  liste.sort((a, b) => {
+    let va = a[cle], vb = b[cle];
+    if (va == null) return 1; if (vb == null) return -1;
+    if (typeof va === 'string' && typeof vb === 'string') return va.localeCompare(vb, 'fr') * sens;
+    return (va < vb ? -1 : va > vb ? 1 : 0) * sens;
+  });
+}
+function majFleches(idTable, etatTri) {
+  $$('#' + idTable + ' thead th[data-tri]').forEach(th => {
+    const f = th.querySelector('.fleche');
+    if (f) f.textContent = (th.dataset.tri === etatTri.cle) ? (etatTri.sens === 1 ? '▲' : '▼') : '';
+  });
+}
+function brancherTri(idTable, etatTri, rafraichir) {
+  $$('#' + idTable + ' thead th[data-tri]').forEach(th => th.addEventListener('click', () => {
+    const cle = th.dataset.tri;
+    if (etatTri.cle === cle) etatTri.sens = -etatTri.sens; else { etatTri.cle = cle; etatTri.sens = 1; }
+    rafraichir();
+  }));
+}
+
+/* ---------- utilitaires ---------- */
+const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('fr-FR') : '—';
+const fmtDateHeure = (iso) => iso ? new Date(iso).toLocaleString('fr-FR', {dateStyle:'short', timeStyle:'short'}) : '—';
+const fmtNb = (n) => n.toLocaleString('fr-FR');
+const echap = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function toast(message) {
+  const t = $('#toast');
+  const barre = $('#barre-actions');
+  t.textContent = message;
+  // Position dynamique : toujours au-dessus de la barre d'actions, quelle que
+  // soit sa hauteur réelle (elle peut passer sur deux rangées).
+  t.style.bottom = barre.classList.contains('visible') ? (20 + barre.offsetHeight + 14) + 'px' : '';
+  t.classList.add('visible');
+  clearTimeout(t._minuteur);
+  t._minuteur = setTimeout(() => t.classList.remove('visible'), 2800);
+}
+
+function copier(texte, message) {
+  const secours = () => {
+    const ta = document.createElement('textarea');
+    ta.value = texte; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy'); ta.remove();
+    toast(message);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(texte).then(() => toast(message)).catch(secours);
+  } else { secours(); }
+}
+
+/* ---------- chargement des données ---------- */
+async function chargerDepuisTexte(texte, origine) {
+  montrerChargement('Lecture du fichier JSON…',
+    texte.length > 1048576 ? Math.round(texte.length / 1048576) + ' Mo' : '');
+  await laisserPeindre();
+  let brut;
+  try { brut = JSON.parse(texte); }
+  catch (e) { cacherChargement(); toast('Fichier illisible : ce n\u2019est pas un JSON valide.'); return; }
+  if (!brut || !Array.isArray(brut.certificats)) {
+    cacherChargement();
+    toast('Format inattendu : ce fichier ne provient pas de Collecte-ADCS.ps1.');
+    return;
+  }
+  DONNEES = brut;
+  await initialiser(origine);
+}
+
+async function initialiser(origine) {
+  const meta = DONNEES.meta || {};
+  montrerChargement('Analyse de ' + fmtNb(DONNEES.certificats.length) + ' certificats…',
+    (DONNEES.echecs || []).length > 5000 ? '+ ' + fmtNb(DONNEES.echecs.length) + ' échecs' : '');
+  await laisserPeindre();
+  CONFIG_CA = meta.config || 'SERVEUR\\Nom CA';
+  $('#ctx-ca').innerHTML =
+    'CA : <b>' + echap(meta.ca || '?') + '</b> sur <b>' + echap(meta.serveur || '?') + '</b>' +
+    ' · collecte du <b>' + fmtDateHeure(meta.genere) + '</b>' +
+    (meta.depuis ? ' · périmètre : depuis le ' + fmtDate(meta.depuis) : '') +
+    (origine ? ' · ' + echap(origine) : '');
+
+  const maintenant = new Date();
+  const nomTpl = (r) => (r.template && (r.template.affichage || r.template.nom)) || '(aucun)';
+  (DONNEES.enAttente || []).forEach(r => { r.templateAff = nomTpl(r); });
+  (DONNEES.echecs || []).forEach(r => { r.templateAff = nomTpl(r); });
+  certsEnrichis = DONNEES.certificats.map(c => {
+    const fin = c.notAfter ? new Date(c.notAfter) : null;
+    const jours = fin ? Math.ceil((fin - maintenant) / 86400000) : null;
+    let etat, etatOrdre;
+    if (c.revoque)            { etat = 'revoque'; etatOrdre = 0; }
+    else if (jours === null)  { etat = 'expire';  etatOrdre = 1; }
+    else if (jours < 0)       { etat = 'expire';  etatOrdre = 1; }
+    else if (jours <= 30)     { etat = 'j30';     etatOrdre = 2; }
+    else if (jours <= 60)     { etat = 'j60';     etatOrdre = 3; }
+    else if (jours <= 90)     { etat = 'j90';     etatOrdre = 4; }
+    else                      { etat = 'actif';   etatOrdre = 5; }
+    return Object.assign({}, c, {
+      etat, etatOrdre, jours,
+      templateAff: (c.template && (c.template.affichage || c.template.nom)) || '(aucun)'
+    });
+  });
+
+  // Doublons : certificats sélectionnables (actifs ou expirant) ayant un
+  // successeur plus récent, même CN + même modèle -> candidats au motif 4.
+  // EXCLUSION des certificats à courte durée de vie (validité <= 60 j) : les
+  // certificats de signature OCSP et assimilés se chevauchent PAR CONCEPTION ;
+  // les marquer inciterait à des révocations de masse destructrices.
+  const groupes = {};
+  certsEnrichis.forEach(c => {
+    if (c.revoque || c.etat === 'expire' || !c.cn) return;
+    if (c.notBefore && c.notAfter &&
+        (new Date(c.notAfter) - new Date(c.notBefore)) <= 60 * 86400000) return;
+    const cle = c.cn + '\u0000' + c.templateAff;
+    (groupes[cle] = groupes[cle] || []).push(c);
+  });
+  Object.values(groupes).forEach(g => {
+    if (g.length < 2) return;
+    g.sort((a, b) => new Date(b.notBefore) - new Date(a.notBefore));
+    g.slice(1).forEach(c => { c.doublon = true; });
+  });
+
+  // Fraîcheur des données : au-delà de 48 h, l'équipe doit le savoir.
+  const bandeau = $('#bandeau-fraicheur');
+  const ageH = meta.genere ? (Date.now() - new Date(meta.genere)) / 3600000 : null;
+  if (ageH !== null && ageH > 48) {
+    bandeau.textContent = '⚠ Données anciennes : cette collecte date de ' + Math.floor(ageH / 24) +
+      ' jours (' + fmtDateHeure(meta.genere) + '). Relancez Collecte-ADCS.ps1 avant toute décision de révocation.';
+    bandeau.style.display = 'block';
+  } else { bandeau.style.display = 'none'; }
+
+  selection.clear();
+  majBarreActions();
+
+  remplirFiltreTemplates();
+  filtreMoisFrise = null;
+  lignesAffichees = PAS_AFFICHAGE; lignesAttenteAff = PAS_AFFICHAGE; lignesEchecsAff = PAS_AFFICHAGE;
+  $('#recherche').value = ''; $('#filtre-etat').value = ''; $('#filtre-template').value = '';
+  $('#recherche-attente').value = '';
+  $('#recherche-echecs').value = ''; $('#filtre-type-echec').value = ''; $('#filtre-modele-echec').value = ''; $('#filtre-message-echec').value = '';
+  remplirFiltresEchecs();
+  restaurerFiltresDepuisUrl();
+  montrerChargement('Préparation de l\u2019affichage…');
+  await laisserPeindre();
+  majKpis();
+  dessinerFrise();
+  appliquerFiltres();
+  remplirAttente();
+  remplirEchecs();
+  remplirCrl();
+  remplirTemplates();
+
+  $('#zone-import').style.display = 'none';
+  $('#app').style.display = 'block';
+  $('#btn-recharger').style.display = '';
+  cacherChargement();
+}
+
+/* ---------- KPI ---------- */
+function majKpis() {
+  const nb = (f) => certsEnrichis.filter(f).length;
+  const crlRetard = (DONNEES.crl || []).filter(c => c.enRetard).length;
+  const kpis = [
+    { cl: 'ok',     val: nb(c => c.etat === 'actif'),                        lib: 'Certificats actifs (> 90 j)', filtre: 'actif' },
+    { cl: 'alerte', val: nb(c => c.etat === 'j30'),                          lib: 'Expirent sous 30 jours',      filtre: 'j30' },
+    { cl: 'alerte', val: nb(c => c.etat === 'j60' || c.etat === 'j90'),      lib: 'Expirent sous 31–90 jours',   filtre: 'j90' },
+    { cl: 'neutre', val: nb(c => c.etat === 'expire'),                       lib: 'Expirés (non révoqués)',      filtre: 'expire' },
+    { cl: 'danger', val: nb(c => c.etat === 'revoque'),                      lib: 'Révoqués',                    filtre: 'revoque' },
+    { cl: 'alerte', val: nb(c => c.doublon),                                 lib: 'Doublons à nettoyer',         filtre: 'doublon' },
+    { cl: (DONNEES.enAttente || []).length ? 'alerte' : 'neutre', val: (DONNEES.enAttente || []).length, lib: 'Requêtes en attente', onglet: 'attente' },
+    { cl: crlRetard ? 'danger' : 'ok', val: crlRetard, lib: 'CRL en retard', onglet: 'crl' }
+  ];
+  $('#kpis').innerHTML = kpis.map((k, i) =>
+    '<button class="kpi ' + k.cl + '" data-i="' + i + '"><div class="valeur">' + fmtNb(k.val) + '</div><div class="libelle">' + k.lib + '</div></button>'
+  ).join('');
+  $$('#kpis .kpi').forEach(el => el.addEventListener('click', () => {
+    const k = kpis[+el.dataset.i];
+    if (k.onglet) { activerOnglet(k.onglet); return; }
+    activerOnglet('certificats');
+    filtreMoisFrise = null;
+    $('#filtre-etat').value = (k.filtre === 'j90') ? 'j90' : k.filtre;
+    appliquerFiltres();
+  }));
+  $('#badge-certs').textContent = fmtNb(certsEnrichis.length);
+  $('#badge-attente').textContent = fmtNb((DONNEES.enAttente || []).length);
+  $('#badge-attente').className = 'badge' + ((DONNEES.enAttente || []).length ? ' alerte' : '');
+  $('#badge-echecs').textContent = fmtNb((DONNEES.echecs || []).length);
+}
+
+/* ---------- frise des expirations (SVG vanilla) ---------- */
+function dessinerFrise() {
+  const maintenant = new Date();
+  const mois = [];
+  for (let i = 0; i < 12; i++) {
+    const debut = new Date(maintenant.getFullYear(), maintenant.getMonth() + i, 1);
+    const fin = new Date(maintenant.getFullYear(), maintenant.getMonth() + i + 1, 1);
+    mois.push({ debut, fin, nb: 0,
+      libelle: debut.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }) });
+  }
+  let dejaExpires = 0;
+  certsEnrichis.forEach(c => {
+    if (c.revoque || !c.notAfter) return;
+    const fin = new Date(c.notAfter);
+    if (fin < maintenant) { dejaExpires++; return; }
+    for (const m of mois) if (fin >= m.debut && fin < m.fin) { m.nb++; break; }
+  });
+
+  const H = 190, PB = 34, PH = 14, PG = 8, larg = 1200;
+  const colonnes = [{ special: 'expires', nb: dejaExpires, libelle: 'Déjà expirés' }].concat(mois);
+  const lc = larg / colonnes.length;
+  const max = Math.max(1, ...colonnes.map(c => c.nb));
+  const echelleY = (n) => (H - PB - PH) * n / max;
+
+  let svg = '<svg viewBox="0 0 ' + larg + ' ' + H + '" role="img" aria-label="Histogramme des expirations par mois">';
+  colonnes.forEach((c, i) => {
+    const h = Math.max(c.nb > 0 ? 3 : 0, echelleY(c.nb));
+    const x = PG + i * lc, bw = lc - 16;
+    let couleur;
+    if (c.special) couleur = 'var(--gris-500)';
+    else if (i - 1 <= 1) couleur = 'var(--danger)';
+    else if (i - 1 <= 3) couleur = 'var(--alerte)';
+    else couleur = 'var(--bleu)';
+    const y = H - PB - h;
+    svg += '<g class="barre" data-i="' + i + '" tabindex="0" role="button" aria-label="' + echap(c.libelle) + ' : ' + c.nb + ' certificats">';
+    svg += '<rect x="' + x + '" y="' + PH + '" width="' + bw + '" height="' + (H - PB - PH) + '" fill="transparent"/>';
+    svg += '<rect x="' + x + '" y="' + y + '" width="' + bw + '" height="' + h + '" rx="3" fill="' + couleur + '"/>';
+    if (c.nb > 0) svg += '<text x="' + (x + bw / 2) + '" y="' + (y - 5) + '" text-anchor="middle" font-size="14" font-weight="700" fill="var(--gris-700)">' + c.nb + '</text>';
+    svg += '<text x="' + (x + bw / 2) + '" y="' + (H - 12) + '" text-anchor="middle" font-size="13" fill="var(--gris-500)">' + echap(c.libelle) + '</text>';
+    svg += '</g>';
+  });
+  svg += '</svg>';
+  $('#frise').innerHTML = svg;
+
+  $$('#frise .barre').forEach(g => {
+    const action = () => {
+      const i = +g.dataset.i;
+      const c = colonnes[i];
+      activerOnglet('certificats');
+      $('#filtre-etat').value = '';
+      if (c.special) {
+        filtreMoisFrise = null;
+        $('#filtre-etat').value = 'expire';
+      } else {
+        filtreMoisFrise = { debut: c.debut, fin: c.fin, libelle: c.libelle };
+      }
+      appliquerFiltres();
+    };
+    g.addEventListener('click', action);
+    g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); action(); } });
+  });
+}
+
+/* ---------- filtres + table certificats ---------- */
+function remplirFiltreTemplates() {
+  const noms = [...new Set(certsEnrichis.map(c => c.templateAff))].sort((a, b) => a.localeCompare(b, 'fr'));
+  $('#filtre-template').innerHTML = '<option value="">Tous les modèles</option>' +
+    noms.map(n => '<option value="' + echap(n) + '">' + echap(n) + '</option>').join('');
+}
+
+function appliquerFiltres() {
+  const q = $('#recherche').value.trim().toLowerCase();
+  const fe = $('#filtre-etat').value;
+  const ft = $('#filtre-template').value;
+  vueFiltree = certsEnrichis.filter(c => {
+    if (ft && c.templateAff !== ft) return false;
+    if (fe) {
+      if (fe === 'doublon') { if (!c.doublon) return false; }
+      else if (fe === 'j60' && !(c.etat === 'j30' || c.etat === 'j60')) return false;
+      else if (fe === 'j90' && !(c.etat === 'j30' || c.etat === 'j60' || c.etat === 'j90')) return false;
+      else if (fe !== 'j60' && fe !== 'j90' && fe !== 'doublon' && c.etat !== fe) return false;
+    }
+    if (filtreMoisFrise) {
+      if (c.revoque || !c.notAfter) return false;
+      const fin = new Date(c.notAfter);
+      if (fin < filtreMoisFrise.debut || fin >= filtreMoisFrise.fin) return false;
+    }
+    if (q) {
+      const bloc = (c.cn + ' ' + c.demandeur + ' ' + c.serie + ' ' + c.templateAff + ' ' + c.id).toLowerCase();
+      if (!bloc.includes(q)) return false;
+    }
+    return true;
+  });
+  trierVue();
+  lignesAffichees = PAS_AFFICHAGE;
+  rendreTableCerts();
+  const morceaux = [fmtNb(vueFiltree.length) + ' / ' + fmtNb(certsEnrichis.length) + ' certificats'];
+  if (filtreMoisFrise) morceaux.push('expirant en ' + filtreMoisFrise.libelle);
+  $('#info-filtre').textContent = morceaux.join(' · ');
+  // URL partageable entre collègues (le fichier étant identique sur le partage).
+  // Sous file://, history.replaceState peut lever une SecurityError (Chrome) :
+  // repli sur location.hash, et jamais d'interruption de l'affichage.
+  try {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (fe) params.set('etat', fe);
+    if (ft) params.set('tpl', ft);
+    const hash = params.toString();
+    try {
+      history.replaceState(null, '', hash ? '#' + hash : location.pathname.split('/').pop() || ' ');
+    } catch (e1) {
+      if (hash) location.hash = hash;
+      else if (location.hash) location.hash = '';
+    }
+  } catch (e2) { /* le partage d'URL est un confort, jamais bloquant */ }
+}
+
+function restaurerFiltresDepuisUrl() {
+  if (!location.hash || location.hash.length < 2) return;
+  const p = new URLSearchParams(location.hash.slice(1));
+  if (p.get('q')) $('#recherche').value = p.get('q');
+  if (p.get('etat')) $('#filtre-etat').value = p.get('etat');
+  if (p.get('tpl')) {
+    const sel = $('#filtre-template');
+    if ([...sel.options].some(o => o.value === p.get('tpl'))) sel.value = p.get('tpl');
+  }
+}
+
+function trierVue() {
+  trierListe(vueFiltree, tri);
+  majFleches('table-certs', tri);
+}
+
+const LIBELLES_ETAT = {
+  actif: ['Actif', 'actif'], j30: ['Expire ≤ 30 j', 'bientot'], j60: ['Expire ≤ 60 j', 'bientot'],
+  j90: ['Expire ≤ 90 j', 'bientot'], expire: ['Expiré', 'expire'], revoque: ['Révoqué', 'revoque']
+};
+
+function estSelectionnable(c) { return !c.revoque && c.etat !== 'expire' && !!c.serie; }
+
+function rendreTableCerts() {
+  const corps = $('#table-certs tbody');
+  const tranche = vueFiltree.slice(0, lignesAffichees);
+  corps.innerHTML = tranche.map((c, i) => {
+    const [lib, cl] = LIBELLES_ETAT[c.etat];
+    const jours = (c.jours !== null && !c.revoque && c.jours >= 0) ? ' <span class="jours">(' + c.jours + ' j)</span>' : '';
+    const selOk = estSelectionnable(c);
+    const caseSel = '<td class="sel"><input type="checkbox" data-id="' + c.id + '"' +
+      (selOk ? (selection.has(c.id) ? ' checked' : '') : ' disabled title="Non sélectionnable : certificat ' + (c.revoque ? 'déjà révoqué' : 'expiré (absent des CRL)') + '"') +
+      ' aria-label="Sélectionner ' + echap(c.cn) + '"></td>';
+    const marqueDoublon = c.doublon ? ' <span class="etat bientot" title="Un certificat plus récent existe pour ce CN et ce modèle">doublon</span>' : '';
+    return '<tr data-i="' + i + '" tabindex="0">' + caseSel +
+      '<td class="mono num">' + c.id + '</td>' +
+      '<td>' + echap(c.cn) + marqueDoublon + '</td>' +
+      '<td>' + echap(c.demandeur) + '</td>' +
+      '<td>' + echap(c.templateAff) + '</td>' +
+      '<td>' + fmtDate(c.notBefore) + '</td>' +
+      '<td>' + fmtDate(c.notAfter) + jours + '</td>' +
+      '<td><span class="etat ' + cl + '">' + lib + '</span></td></tr>';
+  }).join('');
+  $('#certs-vide').style.display = vueFiltree.length ? 'none' : '';
+  $('#btn-plus').style.display = (vueFiltree.length > lignesAffichees) ? '' : 'none';
+  $('#btn-plus').textContent = 'Afficher les lignes suivantes (' + fmtNb(Math.min(lignesAffichees, vueFiltree.length)) + ' / ' + fmtNb(vueFiltree.length) + ' affichées)';
+  $$('#table-certs tbody tr').forEach(tr => {
+    const ouvrir = () => ouvrirDetail(vueFiltree[+tr.dataset.i]);
+    tr.addEventListener('click', ouvrir);
+    tr.addEventListener('keydown', e => { if (e.key === 'Enter') ouvrir(); });
+    const caseSel = tr.querySelector('td.sel');
+    caseSel.addEventListener('click', e => e.stopPropagation());
+    const cb = caseSel.querySelector('input');
+    cb.addEventListener('change', () => {
+      const cert = vueFiltree[+tr.dataset.i];
+      if (cb.checked) selection.set(cert.id, cert); else selection.delete(cert.id);
+      majBarreActions(); majCaseTout();
+    });
+  });
+  majCaseTout();
+}
+
+/* ---------- sélection & révocation de masse ---------- */
+function majCaseTout() {
+  const selectionnables = vueFiltree.filter(estSelectionnable);
+  const caseTout = $('#sel-tout');
+  caseTout.disabled = selectionnables.length === 0;
+  const nbCoches = selectionnables.filter(c => selection.has(c.id)).length;
+  caseTout.checked = selectionnables.length > 0 && nbCoches === selectionnables.length;
+  caseTout.indeterminate = nbCoches > 0 && nbCoches < selectionnables.length;
+}
+
+function majBarreActions() {
+  const barre = $('#barre-actions');
+  if (selection.size === 0) { barre.classList.remove('visible'); return; }
+  $('#sel-compte').textContent = fmtNb(selection.size) + ' certificat' + (selection.size > 1 ? 's' : '') + ' sélectionné' + (selection.size > 1 ? 's' : '');
+  barre.classList.add('visible');
+}
+
+function libelleRaison(code) {
+  return { 0:'Non spécifié', 1:'Compromission de clé', 3:"Changement d'affiliation",
+           4:'Remplacé', 5:"Cessation d'activité", 6:'Suspension (réversible)' }[code] || code;
+}
+
+function genererCommandesCertutil(certs, raison) {
+  // Bloc destiné à une console PowerShell (commentaires '#', valides aussi
+  // dans un fichier .cmd via copie ligne à ligne des seules commandes).
+  return certs.map(c => 'certutil -config "' + CONFIG_CA + '" -revoke "' + c.serie + '" ' + raison).join('\r\n') +
+    '\r\n# Puis publier une nouvelle CRL :\r\n# certutil -config "' + CONFIG_CA + '" -crl\r\n';
+}
+
+function genererScriptPs1(certs, raison) {
+  const lignes = certs.map(c =>
+    "    @{ Serie = '" + c.serie + "'; CN = '" + String(c.cn).replace(/'/g, "''") + "' }").join('\n');
+  return [
+    '# ============================================================================',
+    '# Revocation en masse — genere par le Visualiseur ADCS le ' + new Date().toLocaleString('fr-FR'),
+    '# CA     : ' + CONFIG_CA,
+    '# Motif  : ' + raison + ' (' + libelleRaison(raison) + ')',
+    '# Lot    : ' + certs.length + ' certificat(s)',
+    '#',
+    '# A executer par un administrateur de la CA habilite, depuis un poste',
+    "# d'administration. RELISEZ LA LISTE ci-dessous avant execution : une",
+    '# revocation (hors motif 6) est definitive.',
+    '# ============================================================================',
+    "$Config = '" + CONFIG_CA + "'",
+    '$Raison = ' + raison,
+    '$Certificats = @(',
+    lignes,
+    ')',
+    '',
+    'Write-Host ("Revocation de " + $Certificats.Count + " certificat(s) sur " + $Config + " — motif ' + raison + ' (' + libelleRaison(raison) + ")\") -ForegroundColor Yellow",
+    '$Certificats | ForEach-Object { Write-Host ("  {0}  {1}" -f $_.Serie, $_.CN) }',
+    '$attendu = [string]$Certificats.Count',
+    '$saisie = Read-Host ("Pour confirmer, saisissez le nombre exact de certificats a revoquer (" + $attendu + ")")',
+    'if ($saisie -ne $attendu) { Write-Warning "Confirmation incorrecte : abandon, aucune revocation effectuee." ; exit 1 }',
+    '',
+    "$journal = 'revocation-masse-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.log'",
+    'Start-Transcript -Path $journal | Out-Null',
+    '$ok = 0 ; $ko = 0',
+    'foreach ($c in $Certificats) {',
+    '    & certutil -config $Config -revoke $c.Serie $Raison | Out-Host',
+    '    if ($LASTEXITCODE -eq 0) { $ok++ }',
+    '    else { $ko++ ; Write-Warning ("ECHEC : " + $c.Serie + "  (" + $c.CN + ")") }',
+    '}',
+    'Write-Host ("Termine : " + $ok + " revocation(s) reussie(s), " + $ko + " echec(s). Journal : " + $journal) -ForegroundColor Cyan',
+    'Stop-Transcript | Out-Null',
+    '',
+    '$pub = Read-Host "Publier une nouvelle CRL maintenant pour rendre ces revocations effectives ? (O/N)"',
+    "if ($pub -match '^[oO]') { & certutil -config $Config -crl }",
+    "else { Write-Host ('A faire avant la prochaine publication planifiee : certutil -config \"' + $Config + '\" -crl') }",
+    ''
+  ].join('\n');
+}
+
+function ouvrirModaleMasse() {
+  const certs = [...selection.values()];
+  if (!certs.length) return;
+  const raison = $('#raison-masse').value;
+  $('#modale-titre').textContent = 'Révoquer ' + fmtNb(certs.length) + ' certificat' + (certs.length > 1 ? 's' : '') +
+    ' — motif ' + raison + ' (' + libelleRaison(raison) + ')';
+  const apercu = certs.slice(0, 200).map(c =>
+    String(c.id).padStart(6) + '  ' + c.serie + '  ' + c.cn + '  [' + c.templateAff + ']').join('\n');
+  $('#modale-recap').textContent = apercu + (certs.length > 200 ? '\n… et ' + fmtNb(certs.length - 200) + ' autres (tous inclus dans le script)' : '');
+  $('#modale-voile').style.display = 'block';
+  $('#modale').style.display = 'block';
+}
+
+function fermerModale() {
+  $('#modale-voile').style.display = 'none';
+  $('#modale').style.display = 'none';
+}
+
+function telechargerTexte(nom, contenu, mime) {
+  const blob = new Blob(['\uFEFF' + contenu], { type: (mime || 'text/plain') + ';charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = nom;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* ---------- panneau de détail + commandes phase 2 ---------- */
+function blocCommande(id, commande, note) {
+  return '<div class="commande"><pre id="' + id + '">' + echap(commande) + '</pre>' +
+    '<button data-copie="' + id + '">Copier</button></div>' +
+    (note ? '<p class="note-commande">' + note + '</p>' : '');
+}
+
+function ouvrirDetail(c) {
+  const [lib, cl] = LIBELLES_ETAT[c.etat];
+  let html = '<button class="fermer" aria-label="Fermer">✕</button>' +
+    '<h2>' + echap(c.cn || '(sans nom commun)') + '</h2>' +
+    '<span class="etat ' + cl + '">' + lib + '</span>' +
+    '<dl class="fiche">' +
+    '<dt>ID de requête</dt><dd class="mono">' + c.id + '</dd>' +
+    '<dt>N° de série</dt><dd class="mono">' + echap(c.serie || '—') + '</dd>' +
+    '<dt>Demandeur</dt><dd>' + echap(c.demandeur) + '</dd>' +
+    '<dt>Modèle</dt><dd>' + echap(c.templateAff) + (c.template && c.template.oid && c.template.oid !== c.templateAff ? ' <span class="mono jours">' + echap(c.template.oid) + '</span>' : '') + '</dd>' +
+    '<dt>Soumis le</dt><dd>' + fmtDateHeure(c.soumisLe) + '</dd>' +
+    '<dt>Valide du</dt><dd>' + fmtDate(c.notBefore) + ' au ' + fmtDate(c.notAfter) +
+      (c.jours !== null && c.jours >= 0 && !c.revoque ? ' (' + c.jours + ' jours restants)' : '') + '</dd>';
+  if (c.revoque) {
+    html += '<dt>Révoqué le</dt><dd>' + fmtDateHeure(c.revoqueLe) + '</dd>' +
+            '<dt>Motif</dt><dd>' + echap(c.raisonRevocation || '—') + '</dd>';
+  }
+  html += '</dl>';
+
+  if (!c.revoque && c.serie) {
+    html += '<div class="bloc-commandes"><h3>Révoquer ce certificat</h3>' +
+      '<div class="avertissement">Commande à exécuter par un administrateur de la CA habilité, depuis un poste d\u2019administration. Cet outil n\u2019exécute jamais d\u2019action sur la CA.</div>' +
+      '<div class="choix-raison"><label for="raison">Motif : </label><select id="raison">' +
+      '<option value="0">0 — Non spécifié</option><option value="1">1 — Compromission de clé</option>' +
+      '<option value="3">3 — Changement d\u2019affiliation</option><option value="4" selected>4 — Remplacé</option>' +
+      '<option value="5">5 — Cessation d\u2019activité</option><option value="6">6 — Suspension (réversible)</option>' +
+      '</select></div>' +
+      '<div id="zone-cmd-revoque"></div>' +
+      '<h3 style="margin-top:14px">Puis publier une nouvelle CRL</h3>' +
+      blocCommande('cmd-crl', 'certutil -config "' + CONFIG_CA + '" -crl',
+        'À exécuter après la révocation pour qu\u2019elle soit effective côté clients sans attendre la publication planifiée.') +
+      '</div>';
+  }
+  const panneau = $('#panneau');
+  panneau.innerHTML = html;
+  if (!c.revoque && c.serie) {
+    const majCmd = () => {
+      const raison = panneau.querySelector('#raison').value;
+      panneau.querySelector('#zone-cmd-revoque').innerHTML =
+        blocCommande('cmd-revoque', 'certutil -config "' + CONFIG_CA + '" -revoke "' + c.serie + '" ' + raison, null);
+      brancherCopie(panneau);
+    };
+    panneau.querySelector('#raison').addEventListener('change', majCmd);
+    majCmd();
+  }
+  brancherCopie(panneau);
+  panneau.querySelector('.fermer').addEventListener('click', fermerDetail);
+  panneau.classList.add('ouvert');
+  $('#voile').style.display = 'block';
+}
+
+function ouvrirDetailAttente(r) {
+  const anciennete = r.soumisLe ? Math.floor((Date.now() - new Date(r.soumisLe)) / 86400000) : null;
+  let html = '<button class="fermer" aria-label="Fermer">✕</button>' +
+    '<h2>Requête en attente n° ' + r.id + '</h2>' +
+    '<span class="etat attente">En attente d\u2019approbation</span>' +
+    '<dl class="fiche">' +
+    '<dt>Nom commun</dt><dd>' + echap(r.cn || '—') + '</dd>' +
+    '<dt>Demandeur</dt><dd>' + echap(r.demandeur) + '</dd>' +
+    '<dt>Modèle</dt><dd>' + echap((r.template && (r.template.affichage || r.template.nom)) || '(aucun)') + '</dd>' +
+    '<dt>Soumise le</dt><dd>' + fmtDateHeure(r.soumisLe) + (anciennete !== null ? ' (il y a ' + anciennete + ' j)' : '') + '</dd>' +
+    '</dl>' +
+    '<div class="bloc-commandes"><h3>Traiter cette requête</h3>' +
+    '<div class="avertissement">Vérifiez la légitimité de la demande (demandeur, modèle, usage prévu) avant d\u2019approuver. Commandes à exécuter par un administrateur de la CA habilité.</div>' +
+    '<p style="font-size:13px;margin:8px 0 2px"><b>Approuver et émettre :</b></p>' +
+    blocCommande('cmd-approuve', 'certutil -config "' + CONFIG_CA + '" -resubmit ' + r.id, null) +
+    '<p style="font-size:13px;margin:12px 0 2px"><b>Refuser :</b></p>' +
+    blocCommande('cmd-refuse', 'certutil -config "' + CONFIG_CA + '" -deny ' + r.id, null) +
+    '</div>';
+  const panneau = $('#panneau');
+  panneau.innerHTML = html;
+  brancherCopie(panneau);
+  panneau.querySelector('.fermer').addEventListener('click', fermerDetail);
+  panneau.classList.add('ouvert');
+  $('#voile').style.display = 'block';
+}
+
+function brancherCopie(racine) {
+  racine.querySelectorAll('button[data-copie]').forEach(b => {
+    b.onclick = () => copier(document.getElementById(b.dataset.copie).textContent, 'Commande copiée. À exécuter en tant qu\u2019administrateur CA.');
+  });
+}
+
+function fermerDetail() {
+  $('#panneau').classList.remove('ouvert');
+  $('#voile').style.display = 'none';
+}
+
+/* ---------- onglets secondaires ---------- */
+function vueAttente() {
+  const q = $('#recherche-attente').value.trim().toLowerCase();
+  const liste = (DONNEES.enAttente || []).filter(r =>
+    !q || ((r.cn || '') + ' ' + r.demandeur + ' ' + r.templateAff + ' ' + r.id).toLowerCase().includes(q));
+  trierListe(liste, triAttente);
+  return liste;
+}
+
+function remplirAttente() {
+  const total = (DONNEES.enAttente || []).length;
+  const liste = vueAttente();
+  majFleches('table-attente', triAttente);
+  const corps = $('#table-attente tbody');
+  const tranche = liste.slice(0, lignesAttenteAff);
+  corps.innerHTML = tranche.map((r, i) => {
+    const anciennete = r.soumisLe ? Math.floor((Date.now() - new Date(r.soumisLe)) / 86400000) + ' j' : '—';
+    return '<tr data-i="' + i + '" tabindex="0"><td class="mono num">' + r.id + '</td>' +
+      '<td>' + echap(r.cn || '—') + '</td><td>' + echap(r.demandeur) + '</td>' +
+      '<td>' + echap(r.templateAff) + '</td>' +
+      '<td>' + fmtDateHeure(r.soumisLe) + '</td><td>' + anciennete + '</td></tr>';
+  }).join('');
+  $('#attente-vide').style.display = liste.length ? 'none' : '';
+  $('#btn-plus-attente').style.display = (liste.length > lignesAttenteAff) ? '' : 'none';
+  $('#btn-plus-attente').textContent = 'Afficher les lignes suivantes (' + fmtNb(Math.min(lignesAttenteAff, liste.length)) + ' / ' + fmtNb(liste.length) + ' affichées)';
+  $('#info-attente').textContent = fmtNb(liste.length) + ' / ' + fmtNb(total) + ' requêtes';
+  $$('#table-attente tbody tr').forEach(tr => {
+    const ouvrir = () => ouvrirDetailAttente(liste[+tr.dataset.i]);
+    tr.addEventListener('click', ouvrir);
+    tr.addEventListener('keydown', e => { if (e.key === 'Enter') ouvrir(); });
+  });
+}
+
+function remplirFiltresEchecs() {
+  const liste = DONNEES.echecs || [];
+  // Modèles distincts
+  const modeles = [...new Set(liste.map(r => r.templateAff))].sort((a, b) => a.localeCompare(b, 'fr'));
+  $('#filtre-modele-echec').innerHTML = '<option value="">Tous les modèles</option>' +
+    modeles.map(m => '<option value="' + echap(m) + '">' + echap(m) + '</option>').join('');
+  // Messages distincts, triés par fréquence décroissante (les échecs ADCS sont répétitifs :
+  // le message dominant désigne généralement la cause à traiter en premier)
+  const freq = new Map();
+  liste.forEach(r => { const m = (r.message || '').trim(); if (m) freq.set(m, (freq.get(m) || 0) + 1); });
+  const messages = [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40);
+  $('#filtre-message-echec').innerHTML = '<option value="">Tous les messages</option>' +
+    messages.map(([m, n]) => {
+      const court = m.length > 70 ? m.slice(0, 70) + '…' : m;
+      return '<option value="' + echap(m) + '">' + echap(court) + ' (' + fmtNb(n) + ')</option>';
+    }).join('');
+}
+
+function vueEchecs() {
+  const q = $('#recherche-echecs').value.trim().toLowerCase();
+  const ftype = $('#filtre-type-echec').value;
+  const fmod = $('#filtre-modele-echec').value;
+  const fmsg = $('#filtre-message-echec').value;
+  const liste = (DONNEES.echecs || []).filter(r => {
+    if (ftype && r.disposition !== ftype) return false;
+    if (fmod && r.templateAff !== fmod) return false;
+    if (fmsg && (r.message || '').trim() !== fmsg) return false;
+    if (q && !(((r.cn || '') + ' ' + r.demandeur + ' ' + r.templateAff + ' ' + (r.message || '') + ' ' + r.id).toLowerCase().includes(q))) return false;
+    return true;
+  });
+  trierListe(liste, triEchecs);
+  return liste;
+}
+
+function remplirEchecs() {
+  const total = (DONNEES.echecs || []).length;
+  const liste = vueEchecs();
+  majFleches('table-echecs', triEchecs);
+  const tranche = liste.slice(0, lignesEchecsAff);
+  $('#table-echecs tbody').innerHTML = tranche.map(r =>
+    '<tr style="cursor:default"><td class="mono num">' + r.id + '</td>' +
+    '<td>' + echap(r.cn || '—') + '</td><td>' + echap(r.demandeur) + '</td>' +
+    '<td>' + echap(r.templateAff) + '</td>' +
+    '<td>' + fmtDateHeure(r.soumisLe) + '</td>' +
+    '<td><span class="etat ' + (r.disposition === 'Refusee' ? 'revoque' : 'expire') + '">' + (r.disposition === 'Refusee' ? 'Refusée' : 'Erreur') + '</span></td>' +
+    '<td style="max-width:420px">' + echap(r.message || '') + '</td></tr>'
+  ).join('');
+  $('#echecs-vide').style.display = liste.length ? 'none' : '';
+  $('#btn-plus-echecs').style.display = (liste.length > lignesEchecsAff) ? '' : 'none';
+  $('#btn-plus-echecs').textContent = 'Afficher les lignes suivantes (' + fmtNb(Math.min(lignesEchecsAff, liste.length)) + ' / ' + fmtNb(liste.length) + ' affichées)';
+  $('#info-echecs').textContent = fmtNb(liste.length) + ' / ' + fmtNb(total) + ' échecs';
+}
+
+function exporterCsvEchecs() {
+  const liste = vueEchecs();
+  const csvCellule = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const entetes = ['ID', 'CN', 'Demandeur', 'Modele', 'SoumiseLe', 'Type', 'Message'];
+  const lignes = liste.map(r => [r.id, r.cn, r.demandeur, r.templateAff, fmtDateHeure(r.soumisLe),
+    r.disposition === 'Refusee' ? 'Refusée' : 'Erreur', r.message || ''].map(csvCellule).join(';'));
+  const contenu = '\uFEFF' + entetes.join(';') + '\r\n' + lignes.join('\r\n');
+  const blob = new Blob([contenu], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'echecs-adcs-' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Export CSV : ' + fmtNb(liste.length) + ' échecs.');
+}
+
+function remplirCrl() {
+  const liste = DONNEES.crl || [];
+  if (!liste.length) {
+    $('#grille-crl').innerHTML = '<p class="vide" style="grid-column:1/-1">Aucune CRL dans l\u2019export (partage CertEnroll inaccessible lors de la collecte ? Utilisez -CheminCRL).</p>';
+    return;
+  }
+  $('#grille-crl').innerHTML = liste.map(c => {
+    const classe = c.enRetard ? 'retard' : (c.aSurveiller ? 'surveiller' : '');
+    const statut = c.enRetard ? '<span class="etat revoque">En retard</span>'
+      : (c.aSurveiller ? '<span class="etat bientot">À surveiller</span>' : '<span class="etat actif">À jour</span>');
+    return '<div class="carte-crl ' + classe + '"><h3>' + echap(c.fichier) + (c.delta ? ' <span class="jours">(delta)</span>' : '') + '</h3>' +
+      '<div class="ligne"><span>Statut</span>' + statut + '</div>' +
+      '<div class="ligne"><span>Publiée le</span><span>' + fmtDateHeure(c.thisUpdate) + '</span></div>' +
+      '<div class="ligne"><span>Prochaine publication</span><b>' + fmtDateHeure(c.nextUpdate) + '</b></div></div>';
+  }).join('');
+}
+
+function remplirTemplates() {
+  const liste = DONNEES.templates || [];
+  const compte = {};
+  certsEnrichis.forEach(c => { compte[c.templateAff] = (compte[c.templateAff] || 0) + 1; });
+  $('#table-templates tbody').innerHTML = liste
+    .slice()
+    .sort((a, b) => (compte[b.affichage] || 0) - (compte[a.affichage] || 0))
+    .map(t =>
+      '<tr style="cursor:default"><td>' + echap(t.affichage || t.nom) + '</td>' +
+      '<td class="mono">' + echap(t.nom) + '</td>' +
+      '<td class="mono">' + echap(t.oid || '—') + '</td>' +
+      '<td class="num">' + fmtNb(compte[t.affichage] || compte[t.nom] || 0) + '</td></tr>'
+    ).join('');
+}
+
+/* ---------- export CSV de la vue filtrée ---------- */
+function exporterCsv() {
+  const entetes = ['ID', 'CN', 'Demandeur', 'Modele', 'EmisLe', 'ExpireLe', 'JoursRestants', 'Etat', 'NumeroSerie', 'RevoqueLe', 'MotifRevocation'];
+  const csvCellule = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const lignes = vueFiltree.map(c => [
+    c.id, c.cn, c.demandeur, c.templateAff, fmtDate(c.notBefore), fmtDate(c.notAfter),
+    (c.jours !== null && c.jours >= 0 && !c.revoque) ? c.jours : '',
+    LIBELLES_ETAT[c.etat][0], c.serie, c.revoqueLe ? fmtDateHeure(c.revoqueLe) : '', c.raisonRevocation || ''
+  ].map(csvCellule).join(';'));
+  const contenu = '\uFEFF' + entetes.join(';') + '\r\n' + lignes.join('\r\n');
+  const blob = new Blob([contenu], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'certificats-adcs-' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Export CSV : ' + fmtNb(vueFiltree.length) + ' lignes.');
+}
+
+/* ---------- navigation ---------- */
+function activerOnglet(nom) {
+  $$('nav.onglets button').forEach(b => b.classList.toggle('actif', b.dataset.onglet === nom));
+  ['certificats', 'attente', 'echecs', 'crl', 'aide'].forEach(o => {
+    $('#onglet-' + o).style.display = (o === nom) ? '' : 'none';
+  });
+}
+
+/* ---------- branchements ---------- */
+document.addEventListener('DOMContentLoaded', () => {
+  $$('nav.onglets button').forEach(b => b.addEventListener('click', () => activerOnglet(b.dataset.onglet)));
+  $('#recherche').addEventListener('input', appliquerFiltres);
+  $('#filtre-etat').addEventListener('change', () => { filtreMoisFrise = null; appliquerFiltres(); });
+  $('#filtre-template').addEventListener('change', appliquerFiltres);
+  $('#btn-reinit').addEventListener('click', () => {
+    $('#recherche').value = ''; $('#filtre-etat').value = ''; $('#filtre-template').value = '';
+    filtreMoisFrise = null; appliquerFiltres();
+  });
+  $('#btn-csv').addEventListener('click', exporterCsv);
+  $('#btn-plus').addEventListener('click', () => { lignesAffichees += PAS_AFFICHAGE; rendreTableCerts(); });
+  $('#btn-plus-attente').addEventListener('click', () => { lignesAttenteAff += PAS_AFFICHAGE; remplirAttente(); });
+  $('#btn-plus-echecs').addEventListener('click', () => { lignesEchecsAff += PAS_AFFICHAGE; remplirEchecs(); });
+
+  // Recherche / tri / filtres des onglets En attente et Échecs.
+  // Debounce sur les recherches : à 75 000 lignes, filtrer + trier à chaque
+  // frappe reste coûteux ; 150 ms suffisent à lisser sans latence perceptible.
+  const debounce = (fn, ms) => { let t; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; };
+  $('#recherche-attente').addEventListener('input',
+    debounce(() => { lignesAttenteAff = PAS_AFFICHAGE; remplirAttente(); }, 150));
+  $('#recherche-echecs').addEventListener('input',
+    debounce(() => { lignesEchecsAff = PAS_AFFICHAGE; remplirEchecs(); }, 150));
+  ['#filtre-type-echec', '#filtre-modele-echec', '#filtre-message-echec'].forEach(sel =>
+    $(sel).addEventListener('change', () => { lignesEchecsAff = PAS_AFFICHAGE; remplirEchecs(); }));
+  $('#btn-reinit-echecs').addEventListener('click', () => {
+    $('#recherche-echecs').value = ''; $('#filtre-type-echec').value = '';
+    $('#filtre-modele-echec').value = ''; $('#filtre-message-echec').value = '';
+    lignesEchecsAff = PAS_AFFICHAGE; remplirEchecs();
+  });
+  $('#btn-csv-echecs').addEventListener('click', exporterCsvEchecs);
+  brancherTri('table-attente', triAttente, () => { lignesAttenteAff = PAS_AFFICHAGE; remplirAttente(); });
+  brancherTri('table-echecs', triEchecs, () => { lignesEchecsAff = PAS_AFFICHAGE; remplirEchecs(); });
+
+  // Sélection & actions de masse
+  $('#sel-tout').addEventListener('change', () => {
+    const cocher = $('#sel-tout').checked;
+    vueFiltree.filter(estSelectionnable).forEach(c => {
+      if (cocher) selection.set(c.id, c); else selection.delete(c.id);
+    });
+    rendreTableCerts(); majBarreActions();
+    if (cocher && vueFiltree.length > lignesAffichees) {
+      toast('Sélection : toute la vue filtrée (' + fmtNb(vueFiltree.filter(estSelectionnable).length) + ' sélectionnables), y compris les lignes non affichées.');
+    }
+  });
+  $('#btn-vider-sel').addEventListener('click', () => { selection.clear(); rendreTableCerts(); majBarreActions(); });
+  $('#btn-copier-series').addEventListener('click', () => {
+    copier([...selection.values()].map(c => c.serie).join('\r\n'), fmtNb(selection.size) + ' numéros de série copiés.');
+  });
+  $('#btn-revoquer-masse').addEventListener('click', ouvrirModaleMasse);
+  $('#btn-modale-fermer').addEventListener('click', fermerModale);
+  $('#modale-voile').addEventListener('click', fermerModale);
+  $('#btn-copier-commandes').addEventListener('click', () => {
+    const certs = [...selection.values()];
+    copier(genererCommandesCertutil(certs, $('#raison-masse').value),
+      'Commandes copiées (' + fmtNb(certs.length) + ' révocations). À exécuter en tant qu\u2019administrateur CA.');
+    fermerModale();
+  });
+  $('#btn-telecharger-ps1').addEventListener('click', () => {
+    const certs = [...selection.values()];
+    const horodatage = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+    telechargerTexte('revocation-masse-' + horodatage + '.ps1',
+      genererScriptPs1(certs, $('#raison-masse').value), 'text/plain');
+    toast('Script généré (' + fmtNb(certs.length) + ' révocations). Relisez-le, signez-le, puis exécutez-le en admin CA.');
+    fermerModale();
+  });
+
+  // Raccourci : "/" place le focus dans la recherche
+  document.addEventListener('keydown', e => {
+    if (e.key === '/' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) {
+      e.preventDefault(); $('#recherche').focus();
+    }
+  });
+  $('#voile').addEventListener('click', fermerDetail);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { fermerModale(); fermerDetail(); } });
+  $$('#table-certs thead th[data-tri]').forEach(th => th.addEventListener('click', () => {
+    const cle = th.dataset.tri;
+    if (tri.cle === cle) tri.sens = -tri.sens; else tri = { cle, sens: 1 };
+    trierVue(); lignesAffichees = PAS_AFFICHAGE; rendreTableCerts();
+  }));
+
+  // import fichier
+  const zone = $('#zone-import');
+  $('#btn-choisir').addEventListener('click', () => $('#champ-fichier').click());
+  $('#champ-fichier').addEventListener('change', e => {
+    const f = e.target.files[0];
+    if (f) f.text().then(t => chargerDepuisTexte(t, f.name));
+  });
+  ['dragover', 'dragenter'].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.add('survol'); }));
+  ['dragleave', 'drop'].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.remove('survol'); }));
+  zone.addEventListener('drop', e => {
+    const f = e.dataTransfer.files[0];
+    if (f) f.text().then(t => chargerDepuisTexte(t, f.name));
+  });
+  $('#btn-recharger').addEventListener('click', () => {
+    $('#app').style.display = 'none';
+    $('#zone-import').style.display = '';
+    $('#btn-recharger').style.display = 'none';
+  });
+
+  // données embarquées (mode auto-porteur)
+  (async () => {
+    const noeud = document.getElementById('donnees-adcs');
+    const texte = (noeud && noeud.textContent) ? noeud.textContent.trim() : '';
+    if (!texte || texte === 'null') return;
+    montrerChargement('Lecture des données embarquées…');
+    await laisserPeindre();
+    try {
+      const embarque = JSON.parse(texte);
+      if (embarque && Array.isArray(embarque.certificats)) {
+        DONNEES = embarque;
+        await initialiser('données embarquées');
+      } else { cacherChargement(); }
+    } catch (e) { cacherChargement(); }
+  })();
+});
+</script>
+</body>
+</html>
