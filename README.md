@@ -13,6 +13,20 @@ Le projet associe :
 
 > Check-ADCS ne modifie pas la CA. Les opérations sensibles éventuellement préparées par le visualiseur, comme les révocations, restent à relire puis à exécuter volontairement par un administrateur habilité.
 
+## Aperçu
+
+### Tableau de bord avec données embarquées
+
+[![Tableau de bord du Visualiseur ADCS](images/visualiseur-adcs-tableau.webp)](images/visualiseur-adcs-tableau.webp)
+
+Le tableau de bord synthétise l’état des certificats, les prochaines expirations, les révocations, les doublons potentiels, les requêtes en attente et la santé des CRL.
+
+### Chargement manuel d’un export JSON
+
+[![Écran de chargement d’un export ADCS](images/visualiseur-adcs-import.webp)](images/visualiseur-adcs-import.webp)
+
+En mode JSON séparé, le fichier `adcs-data.json` est sélectionné ou déposé dans le navigateur. Son contenu reste traité localement.
+
 ## Aperçu fonctionnel
 
 Le visualiseur fournit notamment :
@@ -259,6 +273,9 @@ Protégez le compte de service, le répertoire de sortie et l’historique des e
 Check-ADCS/
 ├── Collecte--ADCS.ps1       # Collecteur AD CS en lecture seule
 ├── visualiseur-adcs.html    # Interface HTML hors ligne
+├── images/                  # Captures affichées dans le README
+│   ├── visualiseur-adcs-tableau.webp
+│   └── visualiseur-adcs-import.webp
 ├── LICENSE                  # GNU General Public License v3
 └── README.md
 ```
