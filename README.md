@@ -27,7 +27,7 @@ Le visualiseur fournit notamment :
 - l’inventaire des modèles de certificats publiés dans Active Directory ;
 - la détection d’anciens certificats potentiellement en doublon ;
 - l’export CSV des vues filtrées ;
-- la préparation de commandes `certutil` et de scripts PowerShell pour les opérations administratives ;
+- la préparation de commandes `certutil` et de scripts PowerShell de révocation ;
 - un fonctionnement hors ligne : les données sont traitées localement par le navigateur.
 
 La détection des doublons recherche un certificat plus récent et valide possédant le même nom commun et le même modèle. Les certificats dont la durée de validité est inférieure ou égale à 60 jours sont exclus afin de ne pas signaler comme anormaux certains chevauchements légitimes, notamment pour OCSP.
@@ -36,12 +36,12 @@ La détection des doublons recherche un certificat plus récent et valide possé
 
 ```mermaid
 flowchart LR
-    AD[Active Directory\nCA et modèles] -->|LDAP| COL[Collecte--ADCS.ps1]
-    CA[Base AD CS] -->|ICertView / RPC\nlecture seule| COL
-    CRL[CRL locales, UNC\nou HTTP(S)] -->|lecture ASN.1| COL
-    COL --> JSON[adcs-data.json]
-    JSON --> VIS[visualiseur-adcs.html]
-    COL -->|option -Html| AUTO[visualiseur-adcs-autoporteur.html]
+    AD["Active Directory : CA et modèles"] -->|LDAP| COL["Collecte--ADCS.ps1"]
+    CA["Base AD CS"] -->|"ICertView / RPC en lecture seule"| COL
+    CRL["CRL locales, UNC ou HTTP/HTTPS"] -->|"Lecture ASN.1"| COL
+    COL --> JSON["adcs-data.json"]
+    JSON --> VIS["visualiseur-adcs.html"]
+    COL -->|"Paramètre -Html"| AUTO["visualiseur-adcs-autoporteur.html"]
 ```
 
 Le collecteur utilise l’interface COM native `CertificateAuthority.View` (`ICertView`). Aucun module PowerShell tiers, tel que PSPKI, n’est nécessaire.
@@ -181,16 +181,18 @@ Sans `-CheminCRL`, le script recherche automatiquement les fichiers `*.crl` dans
 
 La lecture des dates de CRL est réalisée directement dans leur structure ASN.1. Le collecteur n’utilise pas `certutil -crl`, car cette commande provoquerait une nouvelle publication de CRL.
 
-## Paramètres
+## Paramètres du collecteur
+
+La liste ci-dessous reprend exclusivement le bloc `param()` présent dans `Collecte--ADCS.ps1`. Le script ne déclare aucun autre paramètre.
 
 | Paramètre | Type | Obligatoire | Description |
 |---|---:|:---:|---|
 | `-Config` | `String` | Non | CA cible au format `SERVEUR\Nom de la CA`. Auto-détection si omis. |
-| `-Depuis` | `DateTime` | Non | Ne conserve que les requêtes soumises depuis cette date. |
-| `-Sortie` | `String` | Non | Dossier de sortie. Valeur par défaut : dossier courant. |
+| `-Depuis` | `DateTime` | Non | Restreint côté serveur la collecte aux requêtes soumises depuis cette date. |
+| `-Sortie` | `String` | Non | Dossier de sortie. Valeur par défaut : dossier courant (`.`). |
 | `-CheminCRL` | `String[]` | Non | Chemins locaux, UNC ou URL HTTP(S) des CRL. |
 | `-Html` | `String` | Non | Chemin du visualiseur servant de modèle pour produire le fichier autoporteur. |
-| `-AlerteCRLHeures` | `Int32` | Non | Délai avant `nextUpdate` déclenchant l’état « à surveiller ». Valeur par défaut : 24 heures. |
+| `-AlerteCRLHeures` | `Int32` | Non | Marge avant `nextUpdate` déclenchant l’état « à surveiller ». Valeur par défaut : 24 heures. |
 
 ## Utilisation du visualiseur
 
@@ -200,7 +202,7 @@ La lecture des dates de CRL est réalisée directement dans leur structure ASN.1
 2. Glissez-déposez `adcs-data.json` dans la zone d’import ou utilisez **Choisir un fichier**.
 3. Consultez les indicateurs et les différents onglets.
 
-Le fichier est lu par l’API locale du navigateur. Aucune donnée n’est envoyée vers un serveur par le visualiseur.
+Le fichier est lu localement par le navigateur. Aucune donnée n’est envoyée vers un serveur par le visualiseur.
 
 ### Mode autoporteur
 
@@ -212,11 +214,11 @@ visualiseur-adcs-autoporteur.html
 
 Les données sont déjà embarquées dans la page.
 
-### Préparation des actions administratives
+### Préparation des révocations
 
 Le visualiseur peut préparer :
 
-- des commandes `certutil` unitaires ;
+- des commandes `certutil` de révocation ;
 - une liste de numéros de série ;
 - un script PowerShell de révocation en masse avec confirmation explicite, transcript et bilan d’exécution.
 
@@ -234,6 +236,8 @@ Exemple d’action :
 Programme : C:\Program Files\PowerShell\7\pwsh.exe
 Arguments : -NoProfile -File "C:\Outils\Check-ADCS\Collecte--ADCS.ps1" -Config "SRV-PKI01\CA-Collectivite" -Html "C:\Outils\Check-ADCS\visualiseur-adcs.html" -Sortie "\\SERVEUR\Partage\PKI"
 ```
+
+Dans cet exemple, `-NoProfile` et `-File` sont des options de l’exécutable `pwsh.exe`. Les paramètres transmis à `Collecte--ADCS.ps1` sont uniquement `-Config`, `-Html` et `-Sortie`.
 
 Protégez le compte de service, le répertoire de sortie et l’historique des exports conformément à la sensibilité des informations de la PKI.
 
