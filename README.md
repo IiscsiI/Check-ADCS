@@ -1,7 +1,7 @@
 # Check-ADCS
 
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%20%7C%207%2B-5391FE?logo=powershell&logoColor=white)](https://learn.microsoft.com/powershell/)
-[![Licence GPLv3](https://img.shields.io/badge/licence-GPLv3-blue.svg)](LICENSE)
+[![Licence MIT + Commons Clause](https://img.shields.io/badge/licence-MIT%20%2B%20Commons%20Clause-blue.svg)](LICENSE)
 
 **Check-ADCS** est un outil de consultation et de supervision d’une autorité de certification Microsoft **Active Directory Certificate Services (AD CS)**.
 
@@ -36,15 +36,20 @@ Le visualiseur fournit notamment :
 - la recherche, le tri et le filtrage par état ou modèle de certificat ;
 - le détail des certificats émis et révoqués ;
 - le suivi des demandes en attente ;
-- l’analyse des demandes refusées ou en erreur ;
+- l’analyse des demandes refusées ou en erreur, avec un filtre par message trié par fréquence pour identifier la cause dominante ;
+- l’investigation et la relance des demandes en échec (commandes `certutil -view -restrict` et `-resubmit` pré-générées) ;
 - l’état des CRL et l’alerte sur les prochaines dates de publication ;
 - l’inventaire des modèles de certificats publiés dans Active Directory ;
 - la détection d’anciens certificats potentiellement en doublon ;
 - l’export CSV des vues filtrées ;
-- la préparation de commandes `certutil` et de scripts PowerShell de révocation ;
+- la préparation de commandes `certutil` et de scripts PowerShell de révocation, y compris pour les certificats expirés ;
+- la levée d’une suspension (motif 6, `certificateHold`) via la commande `unrevoke` pré-générée ;
+- la génération d’un bordereau de campagne horodaté, à coller dans un ticket pour documenter la décision de révocation ;
 - un fonctionnement hors ligne : les données sont traitées localement par le navigateur.
 
 La détection des doublons recherche un certificat plus récent et valide possédant le même nom commun et le même modèle. Les certificats dont la durée de validité est inférieure ou égale à 60 jours sont exclus afin de ne pas signaler comme anormaux certains chevauchements légitimes, notamment pour OCSP.
+
+Le tri par défaut de la table des certificats suit l’urgence opérationnelle : expirations imminentes d’abord, puis certificats actifs par date, les certificats expirés et révoqués étant relégués en fin de liste.
 
 ## Architecture
 
@@ -67,7 +72,7 @@ Le fichier JSON contient :
 - les certificats émis et révoqués ;
 - les identifiants de requête, noms communs, demandeurs, numéros de série et dates de validité ;
 - le modèle de certificat associé ;
-- les dates et motifs de révocation ;
+- les dates et motifs de révocation, ainsi que le code numérique du motif (utilisé notamment pour détecter les suspensions) ;
 - les demandes en attente ;
 - les demandes refusées ou en erreur et leur message de disposition ;
 - les modèles publiés dans Active Directory ;
@@ -264,7 +269,8 @@ Protégez le compte de service, le répertoire de sortie et l’historique des e
 - Les résultats constituent un **instantané** au moment de la collecte, pas une supervision temps réel.
 - L’auto-détection ne doit pas être utilisée sans contrôle lorsqu’un domaine publie plusieurs CA.
 - La détection de doublons est une aide à l’analyse. Elle ne prouve pas que l’ancien certificat n’est plus utilisé.
-- Une révocation est généralement définitive, sauf suspension avec le motif `certificateHold` dans les conditions prévues par AD CS.
+- Une révocation est généralement définitive, sauf suspension avec le motif `certificateHold` ; le visualiseur propose alors la commande de levée (`unrevoke`) dans le détail du certificat.
+- La révocation d’un certificat expiré est enregistrée dans la base de la CA (traçabilité, audit) mais n’apparaît dans les CRL que si la CA publie les certificats expirés (`CRLFlags`, `CRLF_PUBLISH_EXPIRED_CERT_CRLS`).
 - Vérifiez toujours le déploiement du certificat de remplacement avant de révoquer un ancien certificat.
 
 ## Structure du dépôt
@@ -276,13 +282,22 @@ Check-ADCS/
 ├── images/                  # Captures affichées dans le README
 │   ├── visualiseur-adcs-tableau.webp
 │   └── visualiseur-adcs-import.webp
-├── LICENSE                  # GNU General Public License v3
+├── CHANGELOG.md             # Historique des versions
+├── LICENSE                  # MIT + Commons Clause (usage commercial restreint)
 └── README.md
 ```
 
 ## Licence
 
-Ce projet est distribué sous licence **GNU General Public License v3.0**. Consultez le fichier [LICENSE](LICENSE) pour les conditions complètes.
+Ce projet est distribué sous licence **MIT assortie de la Commons Clause v1.0**.
+
+L’utilisation, la copie, la modification et la redistribution sont libres — y compris en environnement professionnel et pour un usage interne — pour les administrations, collectivités, entreprises et particuliers.
+
+La Commons Clause retire en revanche le droit de **vendre** le logiciel : sont interdites la revente de l’outil, son intégration dans une offre commerciale, ainsi que la fourniture à des tiers, contre rémunération, de produits ou de prestations (conseil, support, hébergement, services managés) dont la valeur dérive entièrement ou substantiellement de ses fonctionnalités.
+
+Consultez le fichier [LICENSE](LICENSE) pour les conditions complètes. Pour toute demande d’utilisation commerciale, contactez l’auteur.
+
+> Note : du fait de cette restriction, le projet relève du « source available » et non de l’open source au sens de l’OSI. Les versions antérieures déjà obtenues sous GPLv3 restent régies par cette licence.
 
 ## Avertissement
 

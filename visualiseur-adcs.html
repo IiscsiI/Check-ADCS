@@ -195,7 +195,7 @@
   /* ---------- sélection & actions de masse ---------- */
   td.sel, th.col-sel { width: 34px; text-align: center; }
   td.sel input, th.col-sel input { cursor: pointer; width: 15px; height: 15px; accent-color: var(--bleu); }
-  td.sel input:disabled { cursor: not-allowed; }
+  td.sel input:disabled { cursor: not-allowed; opacity: .35; }
   #bandeau-fraicheur {
     display: none; background: var(--alerte-fond); color: var(--alerte);
     padding: 8px 24px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--alerte);
@@ -273,7 +273,7 @@
 
 <div id="zone-import">
   <h2>Charger un export ADCS</h2>
-  <p>Déposez ici le fichier <code>adcs-data.json</code> produit par <code>Collecte-ADCS.ps1</code>,<br>ou sélectionnez-le manuellement.</p>
+  <p>Déposez ici le fichier <code>adcs-data.json</code> produit par <code>Collecte--ADCS.ps1</code>,<br>ou sélectionnez-le manuellement.</p>
   <button class="primaire" id="btn-choisir">Choisir un fichier…</button>
   <input type="file" id="champ-fichier" accept=".json,application/json" style="display:none">
   <p style="margin-top:22px;font-size:12px">Aucune donnée ne quitte ce poste : le fichier est lu localement par le navigateur.</p>
@@ -326,7 +326,7 @@
           <th data-tri="templateAff">Modèle<span class="fleche"></span></th>
           <th data-tri="notBefore">Émis le<span class="fleche"></span></th>
           <th data-tri="notAfter">Expire le<span class="fleche"></span></th>
-          <th data-tri="etatOrdre">État<span class="fleche"></span></th>
+          <th data-tri="urgence">État<span class="fleche"></span></th>
         </tr></thead>
         <tbody></tbody>
       </table>
@@ -414,11 +414,11 @@
     <div class="carte aide">
       <h2>Fonctionnement et périmètre de sécurité</h2>
       <p>Cette interface est un <b>visualiseur hors ligne</b> : elle ne se connecte jamais à l'autorité de certification.
-      Elle lit un export JSON produit par le collecteur <code>Collecte-ADCS.ps1</code>, qui interroge la base de la CA
+      Elle lit un export JSON produit par le collecteur <code>Collecte--ADCS.ps1</code>, qui interroge la base de la CA
       <b>en lecture seule</b> (interface COM ICertView, RPC), avec un compte disposant uniquement du droit <i>Read</i>
       (ou du rôle <i>Auditor</i> si la séparation des rôles est activée).</p>
       <h3>Collecte planifiée recommandée</h3>
-      <p><code>powershell.exe -ExecutionPolicy AllSigned -File Collecte-ADCS.ps1 -Config "SERVEUR\Nom CA" -Html visualiseur-adcs.html -Sortie \\partage\pki</code></p>
+      <p><code>powershell.exe -ExecutionPolicy AllSigned -File Collecte--ADCS.ps1 -Config "SERVEUR\Nom CA" -Html visualiseur-adcs.html -Sortie \\partage\pki</code></p>
       <ul>
         <li><code>-Depuis (Get-Date).AddYears(-3)</code> pour limiter la profondeur sur les bases volumineuses ;</li>
         <li><code>-Html</code> produit un fichier auto-porteur unique (données embarquées) à déposer sur un partage DSI ;</li>
@@ -435,8 +435,10 @@
       barre d'actions, puis « Préparer la révocation ». Après relecture du récapitulatif, préférez le
       <b>script PowerShell généré</b> : il exige la saisie du nombre exact de certificats pour confirmer, journalise
       chaque révocation dans un transcript, dresse un bilan succès/échecs, et propose la publication d'une nouvelle CRL.
-      Les certificats expirés et déjà révoqués ne sont pas sélectionnables (les CRL ne portent pas les certificats expirés).
+      Les certificats déjà révoqués ne sont pas sélectionnables. Les certificats expirés le sont : leur révocation reste pertinente pour la traçabilité et l'audit, et elle est indispensable pour un certificat de signature de code horodaté compromis — elle n'apparaît toutefois dans les CRL que si la CA publie les certificats expirés (<code>certutil -setreg ca\CRLFlags +CRLF_PUBLISH_EXPIRED_CERT_CRLS</code>, puis republication).
       Le script généré est à relire puis signer avant exécution, conformément à votre politique AllSigned.</p>
+      <p>Le bouton « Copier le bordereau » de la fenêtre de révocation produit un récapitulatif horodaté (CA, motif, lot, liste complète, champs opérateur/justification à compléter) à coller dans un ticket GLPI ou à archiver : le bordereau documente la décision, le transcript du script prouve l'exécution.</p>
+      <p>Un clic sur une ligne de l'onglet Échecs ouvre le message complet et pré-génère les commandes d'investigation (<code>certutil -view -restrict</code>) et de relance (<code>-resubmit</code>) une fois la cause corrigée. Sur un certificat suspendu (motif 6), le panneau de détail propose la commande de levée (<code>unrevoke</code>).</p>
       <h3>Doublons à nettoyer</h3>
       <p>Un certificat est marqué <i>doublon</i> lorsqu'un certificat plus récent, valide, existe pour le même nom commun
       et le même modèle — typiquement après un ré-enrôlement. Les certificats à courte durée de vie (validité ≤ 60 jours,
@@ -487,10 +489,12 @@
   <div class="avertissement">Cet outil n'exécute aucune action sur la CA. Vérifiez chaque ligne ci-dessous :
   une révocation (hors motif 6) est <b>définitive</b>. Le script généré exige une confirmation explicite,
   journalise dans un transcript, et propose la publication d'une nouvelle CRL en fin d'exécution.</div>
+  <p class="note-commande" id="modale-note-expires" style="display:none;color:var(--alerte)"></p>
   <div class="recap-liste" id="modale-recap"></div>
   <div class="boutons">
     <button class="primaire" id="btn-telecharger-ps1">Télécharger le script PowerShell</button>
     <button id="btn-copier-commandes">Copier les commandes certutil</button>
+    <button id="btn-bordereau">Copier le bordereau</button>
     <button id="btn-modale-fermer">Annuler</button>
   </div>
   <p class="note-commande">Recommandé pour un lot : le script PowerShell (confirmation par saisie du nombre exact,
@@ -536,7 +540,7 @@ function cacherChargement() { $('#chargement').style.display = 'none'; }
 // Rend la main au navigateur pour qu'il peigne l'écran de chargement
 // avant la prochaine phase de travail bloquante.
 const laisserPeindre = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
-let tri = { cle: 'notAfter', sens: 1 };
+let tri = { cle: 'urgence', sens: 1 };
 let triAttente = { cle: 'soumisLe', sens: 1 };        // les plus anciennes d'abord (à traiter)
 let triEchecs = { cle: 'soumisLe', sens: -1 };        // les plus récents d'abord
 let filtreMoisFrise = null;   // {debut: Date, fin: Date, libelle: string} ou null
@@ -606,7 +610,7 @@ async function chargerDepuisTexte(texte, origine) {
   catch (e) { cacherChargement(); toast('Fichier illisible : ce n\u2019est pas un JSON valide.'); return; }
   if (!brut || !Array.isArray(brut.certificats)) {
     cacherChargement();
-    toast('Format inattendu : ce fichier ne provient pas de Collecte-ADCS.ps1.');
+    toast('Format inattendu : ce fichier ne provient pas de Collecte--ADCS.ps1.');
     return;
   }
   DONNEES = brut;
@@ -632,16 +636,19 @@ async function initialiser(origine) {
   certsEnrichis = DONNEES.certificats.map(c => {
     const fin = c.notAfter ? new Date(c.notAfter) : null;
     const jours = fin ? Math.ceil((fin - maintenant) / 86400000) : null;
-    let etat, etatOrdre;
-    if (c.revoque)            { etat = 'revoque'; etatOrdre = 0; }
-    else if (jours === null)  { etat = 'expire';  etatOrdre = 1; }
-    else if (jours < 0)       { etat = 'expire';  etatOrdre = 1; }
-    else if (jours <= 30)     { etat = 'j30';     etatOrdre = 2; }
-    else if (jours <= 60)     { etat = 'j60';     etatOrdre = 3; }
-    else if (jours <= 90)     { etat = 'j90';     etatOrdre = 4; }
-    else                      { etat = 'actif';   etatOrdre = 5; }
+    let etat, prio;
+    if (c.revoque)            { etat = 'revoque'; prio = 5; }
+    else if (jours === null)  { etat = 'expire';  prio = 4; }
+    else if (jours < 0)       { etat = 'expire';  prio = 4; }
+    else if (jours <= 30)     { etat = 'j30';     prio = 0; }
+    else if (jours <= 60)     { etat = 'j60';     prio = 1; }
+    else if (jours <= 90)     { etat = 'j90';     prio = 2; }
+    else                      { etat = 'actif';   prio = 3; }
+    // Tri d'urgence operationnelle : expirations imminentes d'abord,
+    // expires et revoques en fin de liste (ils ne sont pas actionnables).
+    const urgence = prio * 1e14 + (fin ? fin.getTime() : 0);
     return Object.assign({}, c, {
-      etat, etatOrdre, jours,
+      etat, urgence, jours,
       templateAff: (c.template && (c.template.affichage || c.template.nom)) || '(aucun)'
     });
   });
@@ -670,7 +677,7 @@ async function initialiser(origine) {
   const ageH = meta.genere ? (Date.now() - new Date(meta.genere)) / 3600000 : null;
   if (ageH !== null && ageH > 48) {
     bandeau.textContent = '⚠ Données anciennes : cette collecte date de ' + Math.floor(ageH / 24) +
-      ' jours (' + fmtDateHeure(meta.genere) + '). Relancez Collecte-ADCS.ps1 avant toute décision de révocation.';
+      ' jours (' + fmtDateHeure(meta.genere) + '). Relancez Collecte--ADCS.ps1 avant toute décision de révocation.';
     bandeau.style.display = 'block';
   } else { bandeau.style.display = 'none'; }
 
@@ -870,7 +877,7 @@ const LIBELLES_ETAT = {
   j90: ['Expire ≤ 90 j', 'bientot'], expire: ['Expiré', 'expire'], revoque: ['Révoqué', 'revoque']
 };
 
-function estSelectionnable(c) { return !c.revoque && c.etat !== 'expire' && !!c.serie; }
+function estSelectionnable(c) { return !c.revoque && !!c.serie; }
 
 function rendreTableCerts() {
   const corps = $('#table-certs tbody');
@@ -880,7 +887,7 @@ function rendreTableCerts() {
     const jours = (c.jours !== null && !c.revoque && c.jours >= 0) ? ' <span class="jours">(' + c.jours + ' j)</span>' : '';
     const selOk = estSelectionnable(c);
     const caseSel = '<td class="sel"><input type="checkbox" data-id="' + c.id + '"' +
-      (selOk ? (selection.has(c.id) ? ' checked' : '') : ' disabled title="Non sélectionnable : certificat ' + (c.revoque ? 'déjà révoqué' : 'expiré (absent des CRL)') + '"') +
+      (selOk ? (selection.has(c.id) ? ' checked' : '') : ' disabled title="Non sélectionnable : certificat déjà révoqué"') +
       ' aria-label="Sélectionner ' + echap(c.cn) + '"></td>';
     const marqueDoublon = c.doublon ? ' <span class="etat bientot" title="Un certificat plus récent existe pour ce CN et ce modèle">doublon</span>' : '';
     return '<tr data-i="' + i + '" tabindex="0">' + caseSel +
@@ -984,6 +991,22 @@ function genererScriptPs1(certs, raison) {
   ].join('\n');
 }
 
+function genererBordereau(certs, raison) {
+  const l = certs.map(c =>
+    String(c.id).padStart(8) + '  ' + c.serie + '  ' + (c.notAfter ? fmtDate(c.notAfter) : '—').padEnd(12) + '  ' + c.cn + '  [' + c.templateAff + ']');
+  return ['=== BORDEREAU DE REVOCATION EN MASSE ===',
+    'Genere le      : ' + new Date().toLocaleString('fr-FR') + ' (Visualiseur ADCS)',
+    'CA             : ' + CONFIG_CA,
+    'Motif          : ' + raison + ' (' + libelleRaison(raison) + ')',
+    'Nombre         : ' + certs.length + ' certificat(s)',
+    'Operateur      : [A COMPLETER]',
+    'Ticket / justification : [A COMPLETER]',
+    'Execution      : script de revocation .ps1 signe, transcript de journalisation a joindre',
+    '',
+    '      ID  Numero de serie       Expire le     CN  [Modele]',
+    ...l, '=== FIN DU BORDEREAU ==='].join('\r\n');
+}
+
 function ouvrirModaleMasse() {
   const certs = [...selection.values()];
   if (!certs.length) return;
@@ -993,6 +1016,12 @@ function ouvrirModaleMasse() {
   const apercu = certs.slice(0, 200).map(c =>
     String(c.id).padStart(6) + '  ' + c.serie + '  ' + c.cn + '  [' + c.templateAff + ']').join('\n');
   $('#modale-recap').textContent = apercu + (certs.length > 200 ? '\n… et ' + fmtNb(certs.length - 200) + ' autres (tous inclus dans le script)' : '');
+  const nbExpires = certs.filter(c => c.etat === 'expire').length;
+  const noteExp = $('#modale-note-expires');
+  if (nbExpires > 0) {
+    noteExp.textContent = fmtNb(nbExpires) + ' certificat(s) expiré(s) dans la sélection. Leur révocation est enregistrée dans la base de la CA (traçabilité, audit), mais n\u2019apparaît dans les CRL que si la CA publie les certificats expirés (CRLFlags : CRLF_PUBLISH_EXPIRED_CERT_CRLS) — indispensable notamment pour révoquer un certificat de signature de code horodaté compromis.';
+    noteExp.style.display = '';
+  } else { noteExp.style.display = 'none'; }
   $('#modale-voile').style.display = 'block';
   $('#modale').style.display = 'block';
 }
@@ -1036,6 +1065,16 @@ function ouvrirDetail(c) {
             '<dt>Motif</dt><dd>' + echap(c.raisonRevocation || '—') + '</dd>';
   }
   html += '</dl>';
+
+  const estSuspendu = c.revoque && c.serie && (c.raisonCode === 6 || /hold|suspension/i.test(c.raisonRevocation || ''));
+  if (estSuspendu) {
+    html += '<div class="bloc-commandes"><h3>Lever la suspension (unrevoke)</h3>' +
+      '<div class="avertissement">Ce certificat est suspendu (motif 6, réversible). La commande ci-dessous le réactive. À exécuter par un administrateur CA habilité, après vérification que la cause de la suspension est levée.</div>' +
+      blocCommande('cmd-unrevoke', 'certutil -config "' + CONFIG_CA + '" -revoke "' + c.serie + '" unrevoke', null) +
+      '<h3 style="margin-top:14px">Puis publier une nouvelle CRL</h3>' +
+      blocCommande('cmd-crl-un', 'certutil -config "' + CONFIG_CA + '" -crl', 'À exécuter après la levée pour que la réactivation soit effective côté clients.') +
+      '</div>';
+  }
 
   if (!c.revoque && c.serie) {
     html += '<div class="bloc-commandes"><h3>Révoquer ce certificat</h3>' +
@@ -1086,6 +1125,34 @@ function ouvrirDetailAttente(r) {
     blocCommande('cmd-approuve', 'certutil -config "' + CONFIG_CA + '" -resubmit ' + r.id, null) +
     '<p style="font-size:13px;margin:12px 0 2px"><b>Refuser :</b></p>' +
     blocCommande('cmd-refuse', 'certutil -config "' + CONFIG_CA + '" -deny ' + r.id, null) +
+    '</div>';
+  const panneau = $('#panneau');
+  panneau.innerHTML = html;
+  brancherCopie(panneau);
+  panneau.querySelector('.fermer').addEventListener('click', fermerDetail);
+  panneau.classList.add('ouvert');
+  $('#voile').style.display = 'block';
+}
+
+function ouvrirDetailEchec(r) {
+  const type = r.disposition === 'Refusee' ? 'Refusée' : 'Erreur';
+  let html = '<button class="fermer" aria-label="Fermer">✕</button>' +
+    '<h2>Échec n° ' + r.id + '</h2>' +
+    '<span class="etat ' + (r.disposition === 'Refusee' ? 'revoque' : 'expire') + '">' + type + '</span>' +
+    '<dl class="fiche">' +
+    '<dt>Nom commun</dt><dd>' + echap(r.cn || '—') + '</dd>' +
+    '<dt>Demandeur</dt><dd>' + echap(r.demandeur) + '</dd>' +
+    '<dt>Modèle</dt><dd>' + echap(r.templateAff) + '</dd>' +
+    '<dt>Soumise le</dt><dd>' + fmtDateHeure(r.soumisLe) + '</dd>' +
+    '</dl>' +
+    '<h3 style="font-size:14px;margin:0 0 6px">Message complet</h3>' +
+    '<pre style="font-family:var(--mono);font-size:12px;background:var(--gris-100);padding:10px 12px;border-radius:4px;white-space:pre-wrap;word-break:break-word">' + echap(r.message || '—') + '</pre>' +
+    '<div class="bloc-commandes"><h3>Investiguer et relancer</h3>' +
+    '<div class="avertissement">Corrigez la cause de l\u2019échec (permissions du modèle, chaîne, etc.) avant toute relance. Commandes à exécuter par un administrateur CA habilité.</div>' +
+    '<p style="font-size:13px;margin:8px 0 2px"><b>Investiguer côté CA :</b></p>' +
+    blocCommande('cmd-invest', 'certutil -config "' + CONFIG_CA + '" -view -restrict "RequestID=' + r.id + '"', null) +
+    '<p style="font-size:13px;margin:12px 0 2px"><b>Relancer la requête (après correction) :</b></p>' +
+    blocCommande('cmd-resubmit-echec', 'certutil -config "' + CONFIG_CA + '" -resubmit ' + r.id, null) +
     '</div>';
   const panneau = $('#panneau');
   panneau.innerHTML = html;
@@ -1178,8 +1245,8 @@ function remplirEchecs() {
   const liste = vueEchecs();
   majFleches('table-echecs', triEchecs);
   const tranche = liste.slice(0, lignesEchecsAff);
-  $('#table-echecs tbody').innerHTML = tranche.map(r =>
-    '<tr style="cursor:default"><td class="mono num">' + r.id + '</td>' +
+  $('#table-echecs tbody').innerHTML = tranche.map((r, i) =>
+    '<tr data-i="' + i + '" tabindex="0"><td class="mono num">' + r.id + '</td>' +
     '<td>' + echap(r.cn || '—') + '</td><td>' + echap(r.demandeur) + '</td>' +
     '<td>' + echap(r.templateAff) + '</td>' +
     '<td>' + fmtDateHeure(r.soumisLe) + '</td>' +
@@ -1189,6 +1256,11 @@ function remplirEchecs() {
   $('#echecs-vide').style.display = liste.length ? 'none' : '';
   $('#btn-plus-echecs').style.display = (liste.length > lignesEchecsAff) ? '' : 'none';
   $('#btn-plus-echecs').textContent = 'Afficher les lignes suivantes (' + fmtNb(Math.min(lignesEchecsAff, liste.length)) + ' / ' + fmtNb(liste.length) + ' affichées)';
+  $$('#table-echecs tbody tr').forEach(tr => {
+    const ouvrir = () => ouvrirDetailEchec(liste[+tr.dataset.i]);
+    tr.addEventListener('click', ouvrir);
+    tr.addEventListener('keydown', e => { if (e.key === 'Enter') ouvrir(); });
+  });
   $('#info-echecs').textContent = fmtNb(liste.length) + ' / ' + fmtNb(total) + ' échecs';
 }
 
@@ -1308,8 +1380,13 @@ document.addEventListener('DOMContentLoaded', () => {
       if (cocher) selection.set(c.id, c); else selection.delete(c.id);
     });
     rendreTableCerts(); majBarreActions();
-    if (cocher && vueFiltree.length > lignesAffichees) {
-      toast('Sélection : toute la vue filtrée (' + fmtNb(vueFiltree.filter(estSelectionnable).length) + ' sélectionnables), y compris les lignes non affichées.');
+    if (cocher && selection.size > 0) {
+      const visiblesCochees = $$('#table-certs tbody td.sel input:checked').length;
+      if (visiblesCochees === 0) {
+        toast(fmtNb(selection.size) + ' certificats sélectionnés, mais aucun n\u2019est visible à l\u2019écran : les lignes affichées sont révoquées (non sélectionnables). Triez par État ou changez de filtre.');
+      } else if (vueFiltree.length > lignesAffichees) {
+        toast('Sélection : toute la vue filtrée (' + fmtNb(vueFiltree.filter(estSelectionnable).length) + ' sélectionnables), y compris les lignes non affichées.');
+      }
     }
   });
   $('#btn-vider-sel').addEventListener('click', () => { selection.clear(); rendreTableCerts(); majBarreActions(); });
@@ -1317,6 +1394,9 @@ document.addEventListener('DOMContentLoaded', () => {
     copier([...selection.values()].map(c => c.serie).join('\r\n'), fmtNb(selection.size) + ' numéros de série copiés.');
   });
   $('#btn-revoquer-masse').addEventListener('click', ouvrirModaleMasse);
+  $('#btn-bordereau').addEventListener('click', () => {
+    copier(genererBordereau([...selection.values()], $('#raison-masse').value), 'Bordereau copié — à coller dans votre ticket (GLPI…).');
+  });
   $('#btn-modale-fermer').addEventListener('click', fermerModale);
   $('#modale-voile').addEventListener('click', fermerModale);
   $('#btn-copier-commandes').addEventListener('click', () => {

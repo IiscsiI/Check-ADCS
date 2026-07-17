@@ -45,11 +45,11 @@
     "a surveiller". Defaut : 24.
 
 .EXAMPLE
-    .\Collecte-ADCS.ps1
+    .\Collecte--ADCS.ps1
     Auto-detection de la CA, export adcs-data.json dans le dossier courant.
 
 .EXAMPLE
-    .\Collecte-ADCS.ps1 -Config "SRV-PKI01\CA-Collectivite" -Depuis (Get-Date).AddYears(-3) -Html .\visualiseur-adcs.html
+    .\Collecte--ADCS.ps1 -Config "SRV-PKI01\CA-Collectivite" -Depuis (Get-Date).AddYears(-3) -Html .\visualiseur-adcs.html
     Collecte limitee aux 3 dernieres annees et generation du HTML auto-porteur.
 
 .NOTES
@@ -340,11 +340,13 @@ while ($lignes.Next() -ne -1) {
                 revoque   = ($disposition -eq $DISP_REVOKED)
                 revoqueLe = $null
                 raisonRevocation = $null
+                raisonCode = $null
             }
             if ($disposition -eq $DISP_REVOKED) {
                 if ($valeurs['Request.RevokedWhen']) { $obj.revoqueLe = ([datetime]$valeurs['Request.RevokedWhen']).ToString('s') }
                 $codeRaison = if ($null -ne $valeurs['Request.RevokedReason']) { [int]$valeurs['Request.RevokedReason'] } else { 0 }
                 $obj.raisonRevocation = if ($RaisonsRevocation.ContainsKey($codeRaison)) { $RaisonsRevocation[$codeRaison] } else { "Code $codeRaison" }
+                $obj.raisonCode = $codeRaison
             }
             [void]$certificats.Add($obj)
         }
@@ -425,7 +427,7 @@ $donnees = [ordered]@{
         depuis       = if ($PSBoundParameters.ContainsKey('Depuis')) { $Depuis.ToString('s') } else { $null }
         lignesLues   = $compteur
         dureeSecondes = [math]::Round($chrono.Elapsed.TotalSeconds, 1)
-        outil        = ('Collecte-ADCS.ps1 v1.1.1 (lecture seule, PS ' + $PSVersionTable.PSVersion.ToString() + ')')
+        outil        = ('Collecte--ADCS.ps1 v1.2 (lecture seule, PS ' + $PSVersionTable.PSVersion.ToString() + ')')
     }
     certificats = $certificats
     enAttente   = $enAttente
